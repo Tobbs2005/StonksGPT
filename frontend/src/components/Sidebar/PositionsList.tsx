@@ -1,43 +1,31 @@
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
 import { positionsApi } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
 export function PositionsList() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['positions'],
     queryFn: () => positionsApi.getAllPositions(),
-    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchInterval: 30000,
   });
 
   if (isLoading) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Positions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground">Loading positions...</p>
-        </CardContent>
-      </Card>
+      <CardContent className="pt-0">
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      </CardContent>
     );
   }
 
   if (error) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Positions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-destructive">Error loading positions</p>
-        </CardContent>
-      </Card>
+      <CardContent className="pt-0">
+        <p className="text-sm text-destructive">Error loading positions</p>
+      </CardContent>
     );
   }
 
-  // Parse positions from the MCP server response
   const parsePositions = (text: string) => {
     if (!text || text.includes('No open positions')) {
       return [];
@@ -53,28 +41,22 @@ export function PositionsList() {
       unrealized_plpc: string;
     }> = [];
 
-    // Simple parsing - split by position blocks
     const positionBlocks = text.split('Symbol:').slice(1);
-    
-    for (const block of positionBlocks) {
-      const symbolMatch = block.match(/^(\w+)/);
-      const qtyMatch = block.match(/Quantity:\s*([^\n]+)/);
-      const marketValueMatch = block.match(/Market Value:\s*([^\n]+)/);
-      const avgEntryMatch = block.match(/Average Entry Price:\s*([^\n]+)/);
-      const currentPriceMatch = block.match(/Current Price:\s*([^\n]+)/);
-      const plMatch = block.match(/Unrealized P\/L:\s*([^\n]+)/);
-      const plpcMatch = block.match(/\(([^)]+)\)/);
 
-      if (symbolMatch) {
-        positions.push({
-          symbol: symbolMatch[1],
-          qty: qtyMatch?.[1]?.trim() || '',
-          market_value: marketValueMatch?.[1]?.trim() || '',
-          avg_entry_price: avgEntryMatch?.[1]?.trim() || '',
-          current_price: currentPriceMatch?.[1]?.trim() || '',
-          unrealized_pl: plMatch?.[1]?.trim() || '',
-          unrealized_plpc: plpcMatch?.[1]?.trim() || '',
-        });
+    for (const block of positionBlocks) {
+      const lines = block.split('\n');
+      const position: any = {};
+
+      for (const line of lines) {
+        const match = line.match(/(\w+(?:\s+\w+)*):\s*(.+)/);
+        if (match) {
+          const key = match[1].trim().toLowerCase().replace(/\s+/g, '_');
+          position[key] = match[2].trim();
+        }
+      }
+
+      if (position.symbol) {
+        positions.push(position);
       }
     }
 
@@ -85,53 +67,56 @@ export function PositionsList() {
 
   if (positions.length === 0) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Positions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground">No open positions</p>
-        </CardContent>
-      </Card>
+      <p className="text-sm text-muted-foreground">No open positions</p>
     );
   }
 
+  const getChangeTone = (value?: string) => {
+    if (!value) return 'text-muted-foreground';
+    const numeric = Number(value.replace(/[^0-9.-]/g, ''));
+    if (Number.isNaN(numeric) || numeric === 0) return 'text-muted-foreground';
+    return numeric > 0 ? 'text-emerald-500' : 'text-red-500';
+  };
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Positions</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Symbol</TableHead>
-              <TableHead>Qty</TableHead>
-              <TableHead>Value</TableHead>
-              <TableHead>P/L</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {positions.map((position, index) => {
-              const plValue = parseFloat(position.unrealized_pl.replace(/[^0-9.-]/g, ''));
-              const isPositive = !isNaN(plValue) && plValue >= 0;
-              
-              return (
-                <TableRow key={`${position.symbol}-${index}`}>
-                  <TableCell className="font-medium">{position.symbol}</TableCell>
-                  <TableCell>{position.qty}</TableCell>
-                  <TableCell>{position.market_value}</TableCell>
-                  <TableCell>
-                    <Badge variant={isPositive ? 'default' : 'destructive'}>
-                      {position.unrealized_pl}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+    <div className="space-y-2">
+      {positions.map((position, idx) => (
+        <Card
+          key={`${position.symbol}-${idx}`}
+          className="border-sidebar-border bg-sidebar/30 shadow-none"
+        >
+          <CardContent className="p-3">
+            <div className="flex items-center justify-between gap-3">
+              {/* Left: Symbol & Quantity */}
+              <div className="space-y-1 min-w-0">
+                <p className="text-sm font-semibold text-sidebar-foreground">
+                  {position.symbol}
+                </p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {position.qty} @ {position.avg_entry_price}
+                </p>
+              </div>
+
+              {/* Right: Value & Change */}
+              <div className="text-right space-y-1 shrink-0">
+                <p className="text-sm font-medium text-sidebar-foreground">
+                  {position.market_value || position.current_price}
+                </p>
+                {position.unrealized_plpc && (
+                  <p
+                    className={cn(
+                      'text-xs font-semibold',
+                      getChangeTone(position.unrealized_plpc)
+                    )}
+                  >
+                    {position.unrealized_pl} · {position.unrealized_plpc}
+                  </p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
   );
 }
