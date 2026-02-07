@@ -20,17 +20,20 @@ export ALPACA_PAPER_TRADE="True"  # or "False" for live trading
 ```
 
 **Method 2: .env file (recommended)**
-Create a `.env` file in the `alpaca-mcp-server` directory:
+Create a `.env` file in the **root directory** of the project (recommended) or in the `alpaca-mcp-server` directory:
 ```bash
-cd alpaca-mcp-server
-# Run: uvx alpaca-mcp-server init
-# Or manually create .env with:
+# In the root directory (TradeBot/.env) - RECOMMENDED
 ALPACA_API_KEY=your_api_key
 ALPACA_SECRET_KEY=your_secret_key
 ALPACA_PAPER_TRADE=True
+
+# Optional: LLM configuration
+LLM_PROVIDER=openai
+OPENAI_API_KEY=your_openai_api_key
+LLM_MODEL=gpt-4
 ```
 
-The backend will automatically try to load from the `.env` file if environment variables are not set.
+The backend will automatically try to load from the root `.env` file first, then fall back to `alpaca-mcp-server/.env` if not found.
 
 3. (Optional) Configure LLM Provider for Natural Language Processing:
 
@@ -57,7 +60,7 @@ export DEDALUS_API_KEY="your_dedalus_api_key"
 export LLM_MODEL="gpt-4"  # or other models supported by Dedalus
 ```
 
-You can also add these to the `.env` file in the `alpaca-mcp-server` directory. If no LLM provider is configured, the backend will fall back to manual regex-based parsing.
+You can also add these to the root `.env` file (or `alpaca-mcp-server/.env`). If no LLM provider is configured, the backend will fall back to manual regex-based parsing.
 
 3. Run the development server:
 ```bash
@@ -94,11 +97,11 @@ The server will start on `http://localhost:3001`.
 - Make sure `uvx` is installed and available: `which uvx`
 - Verify API keys are set: `echo $ALPACA_API_KEY`
 - Check if the MCP server can start manually: `uvx alpaca-mcp-server serve`
-- Ensure the `.env` file exists in `alpaca-mcp-server/` directory if using that method
+- Ensure the `.env` file exists in the root directory (or `alpaca-mcp-server/` directory) if using that method
 
 **Error: "Missing required environment variables"**
 - Set `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` environment variables
-- Or create a `.env` file in the `alpaca-mcp-server` directory
+- Or create a `.env` file in the root directory (or `alpaca-mcp-server` directory)
 
 **LLM Features Not Working**
 - Ensure you've installed LLM dependencies: `npm install`

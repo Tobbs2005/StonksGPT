@@ -1,9 +1,23 @@
 import express from 'express';
 import cors from 'cors';
+import * as path from 'path';
+import * as dotenv from 'dotenv';
 import accountRoutes from './routes/account';
 import positionsRoutes from './routes/positions';
 import ordersRoutes from './routes/orders';
 import chatRoutes from './routes/chat';
+
+// Load .env file - prioritize root directory first
+const rootEnvPath = path.join(__dirname, '../../.env');
+const backendEnvPath = path.join(__dirname, '../.env');
+if (require('fs').existsSync(rootEnvPath)) {
+  dotenv.config({ path: rootEnvPath });
+} else if (require('fs').existsSync(backendEnvPath)) {
+  dotenv.config({ path: backendEnvPath });
+} else {
+  // Fallback to default dotenv behavior (looks for .env in current directory)
+  dotenv.config();
+}
 
 const app = express();
 const PORT = process.env.PORT || 3001;

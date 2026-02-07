@@ -29,8 +29,8 @@ export function ChatInterface() {
     setIsLoading(true);
 
     try {
-      // Pass the message directly to the backend
-      // The MCP server (when used with an AI assistant) handles natural language interpretation
+      // Send natural language message to LLM service (uses Dedalus Labs MCP)
+      // The LLM will automatically parse the message and call appropriate MCP tools
       const result = await chatApi.sendMessage(userMessage);
       
       const assistantMsg: Message = {

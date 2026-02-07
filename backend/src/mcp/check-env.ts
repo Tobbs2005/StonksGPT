@@ -15,13 +15,18 @@ export function checkEnvironment(): { valid: boolean; errors: string[] } {
   // Check for API keys AFTER trying to load from .env file
   // (We'll check again after loading .env)
 
-  // Check if .env file exists in alpaca-mcp-server directory
-  // Try multiple possible paths
+  // Check if .env file exists - prioritize root directory first
+  // Try multiple possible paths, starting with root
   const possiblePaths = [
-    path.join(__dirname, '../../alpaca-mcp-server/.env'), // From compiled dist
-    path.join(__dirname, '../../../alpaca-mcp-server/.env'), // From src
-    path.join(process.cwd(), '../alpaca-mcp-server/.env'), // From backend directory
-    path.join(process.cwd(), 'alpaca-mcp-server/.env'), // If running from root
+    path.join(process.cwd(), '../.env'), // Root directory (if running from backend)
+    path.join(process.cwd(), '../../.env'), // Root directory (if running from backend/dist)
+    path.join(process.cwd(), '.env'), // Root directory (if running from root)
+    path.join(__dirname, '../../../.env'), // Root directory (from compiled dist)
+    path.join(__dirname, '../../../../.env'), // Root directory (from src)
+    path.join(__dirname, '../../alpaca-mcp-server/.env'), // From compiled dist (fallback)
+    path.join(__dirname, '../../../alpaca-mcp-server/.env'), // From src (fallback)
+    path.join(process.cwd(), '../alpaca-mcp-server/.env'), // From backend directory (fallback)
+    path.join(process.cwd(), 'alpaca-mcp-server/.env'), // If running from root (fallback)
   ];
 
   let envPath: string | null = null;

@@ -39,6 +39,10 @@ export class LLMService {
   /**
    * Filters tools based on user message to reduce token count
    * Includes all stock trading and market data tools, excludes crypto and options
+   * 
+   * NOTE: This method is deprecated for Dedalus provider. Dedalus automatically discovers
+   * tools from MCP servers without manual keyword filtering. This method is kept for
+   * backward compatibility with OpenAI and Anthropic providers.
    */
   private filterRelevantTools(tools: ToolSchema[], userMessage: string): ToolSchema[] {
     const lowerMessage = userMessage.toLowerCase();
@@ -198,8 +202,9 @@ export class LLMService {
     const filtered = filteredStockTools.filter(t => relevantToolNames.has(t.name));
     
     // If keywords matched, return those tools; otherwise return all stock tools
-    // Limit to reasonable number for context window
-    return hasKeywords ? filtered.slice(0, 25) : filteredStockTools.slice(0, 25);
+    // Limit to reasonable number for context window (reduced to prevent token overflow)
+    // With 8192 token limit, we need to be conservative: ~10-15 tools max
+    return hasKeywords ? filtered.slice(0, 12) : filteredStockTools.slice(0, 15);
   }
 
   /**
@@ -209,9 +214,12 @@ export class LLMService {
     // Simplify parameters to reduce token count
     const simplifiedParams = this.simplifyToolParameters(tool.inputSchema);
     
+    // Truncate description to reduce tokens (keep first 100 chars)
+    const shortDescription = tool.description ? tool.description.substring(0, 100) : '';
+    
     return {
       name: tool.name,
-      description: tool.description,
+      description: shortDescription,
       parameters: simplifiedParams,
     };
   }
@@ -230,7 +238,7 @@ export class LLMService {
     
     // Limit properties to essential ones and simplify descriptions
     const simplifiedProperties: Record<string, any> = {};
-    const essentialProps = Object.keys(inputSchema.properties).slice(0, 10); // Limit to 10 properties
+    const essentialProps = Object.keys(inputSchema.properties).slice(0, 5); // Limit to 5 properties to reduce tokens
     
     for (const prop of essentialProps) {
       const propSchema = inputSchema.properties[prop];
@@ -238,7 +246,7 @@ export class LLMService {
       
       simplifiedProperties[prop] = {
         type: propType,
-        description: propSchema.description ? propSchema.description.substring(0, 100) : '', // Limit description length
+        description: propSchema.description ? propSchema.description.substring(0, 50) : '', // Limit description length to 50 chars
       };
       
       // Handle array types - must include items property
@@ -247,7 +255,7 @@ export class LLMService {
         if (propSchema.items) {
           simplifiedProperties[prop].items = {
             type: propSchema.items.type || 'string',
-            description: propSchema.items.description ? propSchema.items.description.substring(0, 50) : '',
+            description: propSchema.items.description ? propSchema.items.description.substring(0, 30) : '',
           };
           // Preserve enum in items if present
           if (propSchema.items.enum) {
@@ -285,15 +293,20 @@ export class LLMService {
   }
 
   private loadEnvFile(): void {
-    // Try to load .env file from alpaca-mcp-server directory
+    // Try to load .env file - prioritize root directory first
     const fs = require('fs');
     const path = require('path');
     
     const possiblePaths = [
-      path.join(process.cwd(), '../alpaca-mcp-server/.env'),
-      path.join(process.cwd(), 'alpaca-mcp-server/.env'),
-      path.join(__dirname, '../../../alpaca-mcp-server/.env'),
-      path.join(__dirname, '../../alpaca-mcp-server/.env'),
+      path.join(process.cwd(), '../.env'), // Root directory (if running from backend)
+      path.join(process.cwd(), '../../.env'), // Root directory (if running from backend/dist)
+      path.join(process.cwd(), '.env'), // Root directory (if running from root)
+      path.join(__dirname, '../../../.env'), // Root directory (from compiled dist)
+      path.join(__dirname, '../../../../.env'), // Root directory (from src)
+      path.join(process.cwd(), '../alpaca-mcp-server/.env'), // Fallback to alpaca-mcp-server
+      path.join(process.cwd(), 'alpaca-mcp-server/.env'), // Fallback to alpaca-mcp-server
+      path.join(__dirname, '../../../alpaca-mcp-server/.env'), // Fallback to alpaca-mcp-server
+      path.join(__dirname, '../../alpaca-mcp-server/.env'), // Fallback to alpaca-mcp-server
     ];
 
     for (const envPath of possiblePaths) {
@@ -448,68 +461,35 @@ export class LLMService {
     const mcpClient = getMCPClient();
     await mcpClient.initialize();
 
-    // Get available tools from MCP
+    // For Dedalus, let it discover tools from MCP server automatically
+    // For other providers, use keyword-based filtering
+    if (this.config.provider === 'dedalus') {
+      // Simplified system prompt for Dedalus - it handles tool discovery automatically
+      const systemPrompt = `You are a trading assistant for Alpaca. Use the available MCP tools to execute user requests. Always call the appropriate tools when users make trading requests or ask questions about their account, positions, or market data. After calling tools, provide clear and friendly responses based on the results.`;
+      return await this.processWithDedalus(userMessage, systemPrompt, mcpClient);
+    }
+
+    // For OpenAI and Anthropic, still use keyword-based filtering
     const toolSchemas = await mcpClient.getToolSchemas();
-    
-    // Filter and simplify tools to reduce token count
-    // Only include essential tools or tools likely to be relevant
     const relevantTools = this.filterRelevantTools(toolSchemas, userMessage);
     const functions = relevantTools.map(tool => this.convertToolSchemaToFunction(tool));
 
-    // Create a simplified system prompt
+    // Create a simplified system prompt for non-Dedalus providers
+    const systemPrompt = `You are a trading assistant for Alpaca. You MUST ALWAYS use MCP tools to execute user requests. NEVER refuse or say you cannot execute trades.
 
-    // Create a simplified system prompt
-    const systemPrompt = `You are a helpful trading assistant that helps users manage their Alpaca trading account.
-You have access to trading tools through the Model Context Protocol (MCP).
-When a user asks a question or makes a request, analyze their intent and call the appropriate tool(s) with the correct parameters extracted from their query.
-After calling tools, provide a clear, user-friendly response based on the results.
+CRITICAL RULES:
+1. When user says "buy X shares of Y" or "buy Y X shares" → CALL place_stock_order tool immediately
+2. Extract: symbol (Y), quantity (X), side="buy", type="market" (unless limit price specified)
+3. For "buy google" → symbol is "GOOGL"
+4. NEVER say "I cannot" or "I don't have the ability" - ALWAYS call the tool
+5. After calling tools, summarize the results in a friendly way
 
-IMPORTANT: When a user asks for "N trading days" of historical data, use the limit parameter set to N (not the days parameter) to ensure you get exactly N trading days. The days parameter represents calendar days and may return fewer bars if weekends are included.
+Available tools: ${relevantTools.map(t => t.name).join(', ')}
 
-Available tools (${relevantTools.length} of ${toolSchemas.length}):
-${relevantTools.map(t => `- ${t.name}: ${t.description}`).join('\n')}
-
-Always be careful with trading operations and confirm actions when appropriate.`;
-//     const systemPrompt = `You are a helpful trading assistant that helps users manage their Alpaca trading account.
-// You have access to trading tools through the Model Context Protocol (MCP).
-// When a user asks a question or makes a request, analyze their intent and call the appropriate tool(s).
-// After calling tools, provide a clear, user-friendly response based on the results.
-
-// CRITICAL GUIDELINES - ALWAYS FOLLOW THESE:
-// 1. EXTRACT NUMERIC VALUES FROM QUERIES:
-//    - If user asks for "5 trading days", "last 5 days", "5 days of history" → use days: 5
-//    - If user asks for "10 shares", "buy 10" → use quantity: 10
-//    - If user asks for "at $150", "limit $150" → use limit_price: 150
-//    - If user asks for "last 20 bars", "limit 20" → use limit: 20
-//    - ALWAYS use the EXACT number the user requested - do not round or change it
-
-// 2. STOCK SYMBOL EXTRACTION:
-//    - When a user asks about a specific stock symbol (e.g., "how many shares of AAPL do I have"), extract the symbol (AAPL) and use get_open_position with the symbol parameter
-//    - Always extract stock symbols (like AAPL, TSLA, MSFT) from user queries and pass them as the "symbol" parameter when required
-
-// 3. POSITION QUERIES:
-//    - When a user asks about all positions or "my positions", use get_all_positions
-//    - For position queries mentioning a specific symbol, use get_open_position. For general position queries, use get_all_positions
-
-// 4. HISTORICAL DATA QUERIES:
-//    - For "last N trading days" or "N days of history", use get_stock_bars with days parameter set to the requested number
-//    - Note: The days parameter represents calendar days. To ensure you get the requested number of trading days, you may need to request slightly more calendar days (e.g., for 5 trading days, use days: 7 to account for weekends)
-//    - Always set timeframe to "1Day" for daily data unless user specifies otherwise
-
-// 5. ACCURACY:
-//    - When reporting results, always match the exact number requested by the user
-//    - If you requested 5 days but only received 3 bars, mention this discrepancy
-//    - Never claim to show "N days" if you're actually showing fewer days
-
-// Available tools (${relevantTools.length} of ${toolSchemas.length}):
-// ${relevantTools.map(t => `- ${t.name}: ${t.description}`).join('\n')}
-
-// Always be careful with trading operations and confirm actions when appropriate.`;
+Example: User says "buy google 100 shares" → Call place_stock_order with {symbol: "GOOGL", side: "buy", quantity: 100, type: "market"}`;
 
     try {
-      if (this.config.provider === 'dedalus') {
-        return await this.processWithDedalus(userMessage, systemPrompt, functions, mcpClient);
-      } else if (this.config.provider === 'openai') {
+      if (this.config.provider === 'openai') {
         return await this.processWithOpenAI(userMessage, systemPrompt, functions, mcpClient);
       } else if (this.config.provider === 'anthropic') {
         return await this.processWithAnthropic(userMessage, systemPrompt, functions, mcpClient);
@@ -525,7 +505,6 @@ Always be careful with trading operations and confirm actions when appropriate.`
   private async processWithDedalus(
     userMessage: string,
     systemPrompt: string,
-    functions: any[],
     mcpClient: any
   ): Promise<string> {
     // Try SDK first, then fall back to REST API
@@ -539,11 +518,24 @@ Always be careful with trading operations and confirm actions when appropriate.`
         const client = new AsyncDedalus({ apiKey: this.config!.apiKey });
         const runner = new DedalusRunner(client);
 
+        // Configure MCP server connection for local alpaca-mcp-server
+        // Dedalus will automatically discover tools from the MCP server
+        const mcpServerConfig = {
+          name: 'alpaca-mcp-server',
+          command: 'uvx',
+          args: ['alpaca-mcp-server', 'serve'],
+          env: {
+            ALPACA_API_KEY: process.env.ALPACA_API_KEY,
+            ALPACA_SECRET_KEY: process.env.ALPACA_SECRET_KEY,
+            ALPACA_PAPER_TRADE: process.env.ALPACA_PAPER_TRADE || 'True',
+          },
+        };
+
         const response = await runner.run({
           input: userMessage,
           model: [this.config!.model],
-          mcp_servers: ['alpaca-mcp-server'],
-          tools: functions.map(f => f.name),
+          mcp_servers: [mcpServerConfig],
+          // Don't pass tools - let Dedalus discover them from MCP server automatically
         });
 
         return response.content || response.text || JSON.stringify(response);
@@ -554,12 +546,21 @@ Always be careful with trading operations and confirm actions when appropriate.`
         useSDK = false;
       } else {
         console.error('Dedalus SDK error:', error.message);
-        throw new Error(`Dedalus Labs SDK error: ${error.message}`);
+        // If SDK fails, try REST API fallback
+        useSDK = false;
       }
     }
 
-    // Fall back to REST API (OpenAI-compatible endpoint)
+    // Fall back to REST API (OpenAI-compatible endpoint) if SDK not available
+    // For REST API, we still need tool schemas, but without keyword filtering
     if (!useSDK) {
+      const toolSchemas = await mcpClient.getToolSchemas();
+      // Filter out crypto and options tools only (no keyword matching)
+      const stockTools = toolSchemas.filter((t: ToolSchema) => {
+        const name = t.name.toLowerCase();
+        return !name.includes('crypto') && !name.includes('option');
+      });
+      const functions = stockTools.map((tool: ToolSchema) => this.convertToolSchemaToFunction(tool));
       return await this.processWithDedalusREST(userMessage, systemPrompt, functions, mcpClient);
     }
 
@@ -598,14 +599,29 @@ Always be careful with trading operations and confirm actions when appropriate.`
       const requestBody: any = {
         model: model,
         messages: messages,
-        max_tokens: 8192, // Increased to prevent truncation
+        max_tokens: 2000, // Reduced to leave room for messages and functions (model limit is 8192 total)
       };
 
       // Only include tools and tool_choice if tools are available
       if (tools && tools.length > 0) {
         requestBody.tools = tools;
-        // Dedalus API may not support tool_choice as string, omit it or use object format
-        // requestBody.tool_choice = 'auto'; // Commented out - Dedalus may handle this automatically
+        // Try to force tool usage for trading commands
+        const isTradingCommand = /(buy|sell|purchase|trade|order)/i.test(userMessage);
+        if (isTradingCommand && iteration === 0) {
+          // For trading commands, try to require tool usage on first iteration
+          // Try object format: { type: "function", function: { name: "place_stock_order" } }
+          // Or try: { type: "auto" }
+          // If Dedalus doesn't support these, it will ignore and default to auto
+          try {
+            // Try requiring the place_stock_order tool if available
+            const placeOrderTool = tools.find((t: any) => t.function?.name === 'place_stock_order');
+            if (placeOrderTool) {
+              requestBody.tool_choice = { type: 'function', function: { name: 'place_stock_order' } };
+            }
+          } catch (e) {
+            // If tool_choice format fails, omit it and let API default to auto
+          }
+        }
       }
 
       const response = await fetch('https://api.dedaluslabs.ai/v1/chat/completions', {
@@ -660,8 +676,29 @@ Always be careful with trading operations and confirm actions when appropriate.`
         continue;
       }
 
-      // No more tool calls, return the final response
-      return message.content || 'No response generated';
+      // No tool calls - check if this is a trading command that should have used tools
+      const responseContent = message.content || 'No response generated';
+      const lowerContent = responseContent.toLowerCase();
+      const refusedKeywords = ["don't have the ability", "cannot execute", "unable to", "i'm sorry", "i cannot", "i don't have", "as an ai"];
+      const isTradingCommand = /(buy|sell|purchase|trade|order)/i.test(userMessage);
+      
+      // If LLM refused to execute a trading command, try to force tool usage with a follow-up
+      if (isTradingCommand && refusedKeywords.some(keyword => lowerContent.includes(keyword)) && iteration < maxIterations - 1) {
+        // Add a follow-up message forcing tool usage
+        messages.push({
+          role: 'user',
+          content: `You MUST call the place_stock_order tool to execute this trade. Do not refuse. Extract the symbol and quantity from: "${userMessage}" and call the tool immediately.`,
+        });
+        iteration++;
+        continue; // Retry with forced instruction
+      }
+      
+      // If still refusing after retry, throw error
+      if (isTradingCommand && refusedKeywords.some(keyword => lowerContent.includes(keyword))) {
+        throw new Error(`LLM refused to execute trading command after ${iteration + 1} attempts. The model responded: "${responseContent}". This indicates the LLM is not calling the required tools. Please check your system prompt and tool configuration.`);
+      }
+      
+      return responseContent;
     }
 
     return 'Maximum iterations reached. Please try again.';
@@ -689,7 +726,7 @@ Always be careful with trading operations and confirm actions when appropriate.`
       const response = await this.openaiClient.chat.completions.create({
         model: this.config!.model,
         messages,
-        max_tokens: 8192, // Increased to prevent truncation
+        max_tokens: 2000, // Reduced to leave room for messages and functions
         tools: functions.length > 0 ? functions.map(f => ({ type: 'function', function: f })) : undefined,
         tool_choice: functions.length > 0 ? 'auto' : undefined,
       });
@@ -757,7 +794,7 @@ Always be careful with trading operations and confirm actions when appropriate.`
 
     const response = await this.anthropicClient.messages.create({
       model: this.config!.model,
-      max_tokens: 8192, // Increased to prevent truncation
+      max_tokens: 2000, // Reduced to leave room for messages and functions
       system: systemPrompt,
       messages: [
         {
@@ -800,7 +837,7 @@ Always be careful with trading operations and confirm actions when appropriate.`
         // Send tool results back to Anthropic for final response
         const finalResponse = await this.anthropicClient.messages.create({
           model: this.config!.model,
-          max_tokens: 8192, // Increased to prevent truncation
+          max_tokens: 2000, // Reduced to leave room for messages and functions
           system: systemPrompt,
           messages: [
             {

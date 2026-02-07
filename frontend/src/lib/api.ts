@@ -83,12 +83,24 @@ export const ordersApi = {
 };
 
 export const chatApi = {
+  // Send natural language message to LLM service (uses Dedalus Labs MCP)
   sendMessage: async (message: string): Promise<string> => {
-    const response = await api.post<ApiResponse<string>>('/chat/message', {
+    const response = await api.post<ApiResponse<string>>('/chat/llm', {
       message,
     });
     if (!response.data.success) {
       throw new Error(response.data.error || 'Failed to send message');
+    }
+    return response.data.data || '';
+  },
+  // Legacy method - call tool directly (bypasses LLM)
+  callToolDirect: async (toolName: string, args?: Record<string, any>): Promise<string> => {
+    const response = await api.post<ApiResponse<string>>('/chat/message', {
+      toolName,
+      arguments: args || {},
+    });
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to call tool');
     }
     return response.data.data || '';
   },
