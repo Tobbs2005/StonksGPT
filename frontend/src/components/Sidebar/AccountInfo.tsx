@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { CardContent } from '@/components/ui/card';
 import { accountApi } from '@/lib/api';
 import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 
 export function AccountInfo() {
   const { data, isLoading, error } = useQuery({
@@ -12,31 +13,20 @@ export function AccountInfo() {
 
   if (isLoading) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Account</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground">Loading...</p>
-        </CardContent>
-      </Card>
+      <CardContent className="pt-0">
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      </CardContent>
     );
   }
 
   if (error) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Account</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-destructive">Error loading account info</p>
-        </CardContent>
-      </Card>
+      <CardContent className="pt-0">
+        <p className="text-sm text-destructive">Error loading account info</p>
+      </CardContent>
     );
   }
 
-  // Parse the account info string (format from MCP server)
   const parseAccountInfo = (text: string) => {
     const info: Record<string, string> = {};
     const lines = text.split('\n');
@@ -52,49 +42,67 @@ export function AccountInfo() {
 
   const accountData = data ? parseAccountInfo(data) : {};
 
+  const getValueTone = (value?: string) => {
+    if (!value) return 'text-foreground';
+    const numeric = Number(value.replace(/[^0-9.-]/g, ''));
+    if (Number.isNaN(numeric) || numeric === 0) return 'text-foreground';
+    return numeric > 0 ? 'text-emerald-500' : 'text-red-500';
+  };
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Account</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {accountData.buying_power && (
-          <div>
-            <div className="text-sm text-muted-foreground">Buying Power</div>
-            <div className="text-lg font-semibold">{accountData.buying_power}</div>
+    <CardContent className="space-y-3 pt-0">
+      {accountData.buying_power && (
+        <div className="space-y-1">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+            Buying Power
+          </p>
+          <p className={cn('text-2xl font-medium', getValueTone(accountData.buying_power))}>
+            {accountData.buying_power}
+          </p>
+        </div>
+      )}
+
+      {(accountData.cash ||
+        accountData.portfolio_value ||
+        accountData.equity ||
+        accountData.status) && <Separator className="my-2" />}
+
+      {accountData.cash && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">Cash</span>
+          <span className={cn('font-medium', getValueTone(accountData.cash))}>
+            {accountData.cash}
+          </span>
+        </div>
+      )}
+
+      {accountData.portfolio_value && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">Portfolio Value</span>
+          <span className={cn('font-medium', getValueTone(accountData.portfolio_value))}>
+            {accountData.portfolio_value}
+          </span>
+        </div>
+      )}
+
+      {accountData.equity && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">Equity</span>
+          <span className={cn('font-medium', getValueTone(accountData.equity))}>
+            {accountData.equity}
+          </span>
+        </div>
+      )}
+
+      {accountData.status && (
+        <>
+          <Separator className="my-2" />
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Status</span>
+            <span className="font-medium text-foreground">{accountData.status}</span>
           </div>
-        )}
-        <Separator />
-        {accountData.cash && (
-          <div>
-            <div className="text-sm text-muted-foreground">Cash</div>
-            <div className="text-lg font-semibold">{accountData.cash}</div>
-          </div>
-        )}
-        <Separator />
-        {accountData.portfolio_value && (
-          <div>
-            <div className="text-sm text-muted-foreground">Portfolio Value</div>
-            <div className="text-lg font-semibold">{accountData.portfolio_value}</div>
-          </div>
-        )}
-        <Separator />
-        {accountData.equity && (
-          <div>
-            <div className="text-sm text-muted-foreground">Equity</div>
-            <div className="text-lg font-semibold">{accountData.equity}</div>
-          </div>
-        )}
-        {accountData.status && (
-          <>
-            <Separator />
-            <div>
-              <div className="text-sm text-muted-foreground">Status</div>
-              <div className="text-sm font-medium">{accountData.status}</div>
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+        </>
+      )}
+    </CardContent>
   );
 }
