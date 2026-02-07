@@ -606,22 +606,16 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
       // Only include tools and tool_choice if tools are available
       if (tools && tools.length > 0) {
         requestBody.tools = tools;
-        // Try to force tool usage for trading commands
+        // Dedalus API expects tool_choice as an object with 'type' field
+        // Valid types: 'auto', 'any', 'tool', or 'none'
+        // For trading commands, use 'any' to encourage tool usage, 'auto' otherwise
         const isTradingCommand = /(buy|sell|purchase|trade|order)/i.test(userMessage);
         if (isTradingCommand && iteration === 0) {
-          // For trading commands, try to require tool usage on first iteration
-          // Try object format: { type: "function", function: { name: "place_stock_order" } }
-          // Or try: { type: "auto" }
-          // If Dedalus doesn't support these, it will ignore and default to auto
-          try {
-            // Try requiring the place_stock_order tool if available
-            const placeOrderTool = tools.find((t: any) => t.function?.name === 'place_stock_order');
-            if (placeOrderTool) {
-              requestBody.tool_choice = { type: 'function', function: { name: 'place_stock_order' } };
-            }
-          } catch (e) {
-            // If tool_choice format fails, omit it and let API default to auto
-          }
+          // For trading commands, use 'any' to encourage tool usage
+          requestBody.tool_choice = { type: 'any' };
+        } else {
+          // Default to 'auto' for normal behavior
+          requestBody.tool_choice = { type: 'auto' };
         }
       }
 

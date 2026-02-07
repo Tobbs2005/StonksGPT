@@ -15,7 +15,7 @@ export function ChatInterface() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, isLoading]);
 
   const handleSend = async (userMessage: string) => {
     const userMsg: Message = {
@@ -58,7 +58,7 @@ export function ChatInterface() {
     <Card className="flex flex-col h-full">
       <CardContent className="flex-1 flex flex-col p-0 min-h-0">
         <div className="flex-1 overflow-hidden min-h-0">
-          <MessageList messages={messages} />
+          <MessageList messages={messages} isLoading={isLoading} />
           <div ref={messagesEndRef} />
         </div>
         <MessageInput onSend={handleSend} disabled={isLoading} />

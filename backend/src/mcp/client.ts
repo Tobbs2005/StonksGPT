@@ -118,10 +118,16 @@ export class MCPClient {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     try {
-      const result = await this.client.callTool({
-        name: toolCall.name,
-        arguments: toolCall.arguments || {},
-      });
+      // Add timeout protection to prevent hanging
+      const result = await Promise.race([
+        this.client.callTool({
+          name: toolCall.name,
+          arguments: toolCall.arguments || {},
+        }),
+        new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error(`Tool call timeout after 20 seconds for ${toolCall.name}`)), 20000)
+        ),
+      ]);
 
       // Extract text content from the result
       if (result.content && Array.isArray(result.content) && result.content.length > 0) {
