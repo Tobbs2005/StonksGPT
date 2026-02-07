@@ -111,6 +111,12 @@ export class MCPClient {
       throw new Error('MCP client not initialized');
     }
 
+    // Log tool call with parameters
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`🔧 MCP Tool Call: ${toolCall.name}`);
+    console.log(`📋 Parameters:`, JSON.stringify(toolCall.arguments || {}, null, 2));
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
     try {
       const result = await this.client.callTool({
         name: toolCall.name,
@@ -124,12 +130,23 @@ export class MCPClient {
           .map((item: any) => item.text)
           .join('\n');
 
+        // Log result summary (truncate if too long)
+        const resultPreview = textContent.length > 500 
+          ? textContent.substring(0, 500) + '...' 
+          : textContent;
+        console.log(`✅ Tool Result (${textContent.length} chars):`, resultPreview.substring(0, 200));
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
         return textContent || JSON.stringify(result.content);
       }
 
-      return JSON.stringify(result);
+      const jsonResult = JSON.stringify(result);
+      console.log(`✅ Tool Result:`, jsonResult.substring(0, 200));
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      return jsonResult;
     } catch (error) {
-      console.error(`Error calling tool ${toolCall.name}:`, error);
+      console.error(`❌ Error calling tool ${toolCall.name}:`, error);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
       throw error;
     }
   }

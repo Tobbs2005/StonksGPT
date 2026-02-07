@@ -592,14 +592,15 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
       { role: 'user', content: userMessage },
     ];
 
-    let maxIterations = 5;
+    let maxIterations = 25;
     let iteration = 0;
+    const toolCallLog: Array<{ iteration: number; tool: string; parameters: any; timestamp: string }> = [];
 
     while (iteration < maxIterations) {
       const requestBody: any = {
         model: model,
         messages: messages,
-        max_tokens: 2000, // Reduced to leave room for messages and functions (model limit is 8192 total)
+        max_tokens: 4000, // Increased to allow for more complex responses (model limit is 8192 total)
       };
 
       // Only include tools and tool_choice if tools are available
@@ -644,12 +645,23 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
 
       // Check if LLM wants to call a tool
       if (message.tool_calls && message.tool_calls.length > 0) {
+        console.log(`\n🔄 Iteration ${iteration + 1}/${maxIterations}: Processing ${message.tool_calls.length} tool call(s)`);
+        
         // Execute tool calls
         const toolResults = await Promise.all(
           message.tool_calls.map(async (toolCall: any) => {
             try {
               const toolName = toolCall.function.name;
               const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+              
+              // Log to tool call log
+              toolCallLog.push({
+                iteration: iteration + 1,
+                tool: toolName,
+                parameters: toolArgs,
+                timestamp: new Date().toISOString(),
+              });
+              
               const result = await mcpClient.callTool({
                 name: toolName,
                 arguments: toolArgs,
@@ -698,7 +710,32 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
         throw new Error(`LLM refused to execute trading command after ${iteration + 1} attempts. The model responded: "${responseContent}". This indicates the LLM is not calling the required tools. Please check your system prompt and tool configuration.`);
       }
       
+      // Log final tool call summary
+      if (toolCallLog.length > 0) {
+        console.log('\n📊 Tool Call Summary:');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        toolCallLog.forEach((log, idx) => {
+          console.log(`${idx + 1}. Iteration ${log.iteration} - ${log.tool}`);
+          console.log(`   Parameters:`, JSON.stringify(log.parameters, null, 2));
+          console.log(`   Time: ${log.timestamp}`);
+        });
+        console.log(`\nTotal tool calls: ${toolCallLog.length}`);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      }
+      
       return responseContent;
+    }
+
+    // Log tool call summary even if max iterations reached
+    if (toolCallLog.length > 0) {
+      console.log('\n⚠️  Maximum iterations reached. Tool Call Summary:');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      toolCallLog.forEach((log, idx) => {
+        console.log(`${idx + 1}. Iteration ${log.iteration} - ${log.tool}`);
+        console.log(`   Parameters:`, JSON.stringify(log.parameters, null, 2));
+      });
+      console.log(`\nTotal tool calls: ${toolCallLog.length}`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     }
 
     return 'Maximum iterations reached. Please try again.';
@@ -719,14 +756,15 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
       { role: 'user', content: userMessage },
     ];
 
-    let maxIterations = 5;
+    let maxIterations = 25;
     let iteration = 0;
+    const toolCallLog: Array<{ iteration: number; tool: string; parameters: any; timestamp: string }> = [];
 
     while (iteration < maxIterations) {
       const response = await this.openaiClient.chat.completions.create({
         model: this.config!.model,
         messages,
-        max_tokens: 2000, // Reduced to leave room for messages and functions
+        max_tokens: 4000, // Increased to allow for more complex responses
         tools: functions.length > 0 ? functions.map(f => ({ type: 'function', function: f })) : undefined,
         tool_choice: functions.length > 0 ? 'auto' : undefined,
       });
@@ -736,12 +774,23 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
 
       // Check if LLM wants to call a tool
       if (message.tool_calls && message.tool_calls.length > 0) {
+        console.log(`\n🔄 Iteration ${iteration + 1}/${maxIterations}: Processing ${message.tool_calls.length} tool call(s)`);
+        
         // Execute tool calls
         const toolResults = await Promise.all(
           message.tool_calls.map(async (toolCall: any) => {
             try {
               const toolName = toolCall.function.name;
               const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+              
+              // Log to tool call log
+              toolCallLog.push({
+                iteration: iteration + 1,
+                tool: toolName,
+                parameters: toolArgs,
+                timestamp: new Date().toISOString(),
+              });
+              
               const result = await mcpClient.callTool({
                 name: toolName,
                 arguments: toolArgs,
@@ -768,8 +817,33 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
         continue;
       }
 
+      // Log final tool call summary
+      if (toolCallLog.length > 0) {
+        console.log('\n📊 Tool Call Summary:');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        toolCallLog.forEach((log, idx) => {
+          console.log(`${idx + 1}. Iteration ${log.iteration} - ${log.tool}`);
+          console.log(`   Parameters:`, JSON.stringify(log.parameters, null, 2));
+          console.log(`   Time: ${log.timestamp}`);
+        });
+        console.log(`\nTotal tool calls: ${toolCallLog.length}`);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      }
+
       // No more tool calls, return the final response
       return message.content || 'No response generated';
+    }
+
+    // Log tool call summary even if max iterations reached
+    if (toolCallLog.length > 0) {
+      console.log('\n⚠️  Maximum iterations reached. Tool Call Summary:');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      toolCallLog.forEach((log, idx) => {
+        console.log(`${idx + 1}. Iteration ${log.iteration} - ${log.tool}`);
+        console.log(`   Parameters:`, JSON.stringify(log.parameters, null, 2));
+      });
+      console.log(`\nTotal tool calls: ${toolCallLog.length}`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     }
 
     return 'Maximum iterations reached. Please try again.';
@@ -792,9 +866,13 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
       input_schema: f.parameters,
     }));
 
+    const toolCallLog: Array<{ iteration: number; tool: string; parameters: any; timestamp: string }> = [];
+    let iteration = 0;
+    const maxIterations = 25;
+
     const response = await this.anthropicClient.messages.create({
       model: this.config!.model,
-      max_tokens: 2000, // Reduced to leave room for messages and functions
+      max_tokens: 4000, // Increased to allow for more complex responses
       system: systemPrompt,
       messages: [
         {
@@ -810,10 +888,20 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
       const toolCalls = response.content.filter((item: any) => item.type === 'tool_use');
       
       if (toolCalls.length > 0) {
+        console.log(`\n🔄 Iteration ${iteration + 1}/${maxIterations}: Processing ${toolCalls.length} tool call(s)`);
+        
         // Execute tool calls
         const toolResults = await Promise.all(
           toolCalls.map(async (toolCall: any) => {
             try {
+              // Log to tool call log
+              toolCallLog.push({
+                iteration: iteration + 1,
+                tool: toolCall.name,
+                parameters: toolCall.input || {},
+                timestamp: new Date().toISOString(),
+              });
+              
               const result = await mcpClient.callTool({
                 name: toolCall.name,
                 arguments: toolCall.input || {},
@@ -834,10 +922,23 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
           })
         );
 
+        // Log tool call summary
+        if (toolCallLog.length > 0) {
+          console.log('\n📊 Tool Call Summary:');
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          toolCallLog.forEach((log, idx) => {
+            console.log(`${idx + 1}. Iteration ${log.iteration} - ${log.tool}`);
+            console.log(`   Parameters:`, JSON.stringify(log.parameters, null, 2));
+            console.log(`   Time: ${log.timestamp}`);
+          });
+          console.log(`\nTotal tool calls: ${toolCallLog.length}`);
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+        }
+
         // Send tool results back to Anthropic for final response
         const finalResponse = await this.anthropicClient.messages.create({
           model: this.config!.model,
-          max_tokens: 2000, // Reduced to leave room for messages and functions
+          max_tokens: 4000, // Increased to allow for more complex responses
           system: systemPrompt,
           messages: [
             {
