@@ -4,7 +4,7 @@ import { compressToolResult } from './result-compressor';
 import { resolveSymbols, searchWeb } from './web-search';
 
 export interface LLMConfig {
-  provider: 'dedalus' | 'openai' | 'anthropic';
+  provider: 'dedalus';
   apiKey: string;
   model: string;
 }
@@ -29,285 +29,87 @@ export interface LLMToolCall {
  */
 export class LLMService {
   private config: LLMConfig | null = null;
-  private openaiClient: any = null;
-  private anthropicClient: any = null;
   private configInitialized = false;
+  private static cryptoBaseSymbols = new Set([
+    'BTC',
+    'ETH',
+    'SOL',
+    'DOGE',
+    'LTC',
+    'XRP',
+    'ADA',
+    'BNB',
+    'AVAX',
+  ]);
 
   constructor() {
     // Don't initialize immediately - wait until first use
     // This allows environment variables to be loaded first
   }
 
-  /**
-   * Filters tools based on user message to reduce token count
-   * Includes all stock trading and market data tools, excludes crypto and options
-   * 
-   * NOTE: This method is deprecated for Dedalus provider. Dedalus automatically discovers
-   * tools from MCP servers without manual keyword filtering. This method is kept for
-   * backward compatibility with OpenAI and Anthropic providers.
-   */
-  private filterRelevantTools(tools: ToolSchema[], userMessage: string): ToolSchema[] {
-    const lowerMessage = userMessage.toLowerCase();
-    
-    // All stock-related tools (excluding crypto and options)
-    const stockTradingTools = [
-      'get_account_info',
-      'get_all_positions',
-      'get_open_position',
-      'place_stock_order',
-      'close_position',
-      'close_all_positions',
-      'get_orders',
-      'cancel_all_orders',
-      'cancel_order_by_id',
-    ];
-    
-    const stockMarketDataTools = [
-      'get_stock_latest_quote',
-      'get_stock_bars',
-      'get_stock_trades',
-      'get_stock_latest_trade',
-      'get_stock_latest_bar',
-      'get_stock_snapshot',
-    ];
-    
-    const stockAssetTools = [
-      'get_asset',
-      'get_all_assets',
-      'get_corporate_actions',
-      'get_portfolio_history',
-    ];
-    
-    const marketInfoTools = [
-      'get_calendar',
-      'get_clock',
-    ];
-    
-    const watchlistTools = [
-      'create_watchlist',
-      'get_watchlists',
-      'get_watchlist_by_id',
-      'update_watchlist_by_id',
-      'add_asset_to_watchlist_by_id',
-      'remove_asset_from_watchlist_by_id',
-      'delete_watchlist_by_id',
-    ];
-    
-    // Combine all stock tools
-    const allStockTools = [
-      ...stockTradingTools,
-      ...stockMarketDataTools,
-      ...stockAssetTools,
-      ...marketInfoTools,
-      ...watchlistTools,
-    ];
-    
-    // Filter out crypto and options tools
-    const filteredStockTools = tools.filter(t => {
-      const name = t.name.toLowerCase();
-      // Exclude crypto tools
-      if (name.includes('crypto')) return false;
-      // Exclude options tools
-      if (name.includes('option')) return false;
-      // Only include stock tools from our list
-      return allStockTools.includes(t.name);
-    });
-    
-    // If no keywords match, return essential stock tools
-    if (filteredStockTools.length === 0) {
-      return tools.filter(t => stockTradingTools.includes(t.name));
+  private normalizeCryptoSymbolForTool(toolName: string, symbol: string): string {
+    const raw = symbol.trim().toUpperCase();
+    const isCryptoDataTool = toolName.startsWith('get_crypto');
+    const isCryptoTradeTool = toolName === 'place_crypto_order';
+    const isPositionTool = toolName === 'close_position' || toolName === 'get_open_position';
+
+    if (!isCryptoDataTool && !isCryptoTradeTool && !isPositionTool) {
+      return symbol;
     }
-    
-    // Keyword-based tool selection for better relevance
-    const keywordMap: Record<string, string[]> = {
-      // Account & Portfolio
-      'account': ['get_account_info'],
-      'balance': ['get_account_info'],
-      'buying power': ['get_account_info'],
-      'cash': ['get_account_info'],
-      'equity': ['get_account_info', 'get_portfolio_history'],
-      'portfolio': ['get_account_info', 'get_all_positions', 'get_portfolio_history'],
-      
-      // Positions
-      'position': ['get_all_positions', 'get_open_position', 'close_position', 'close_all_positions'],
-      'positions': ['get_all_positions', 'close_all_positions'],
-      'shares': ['get_all_positions', 'get_open_position'],
-      'share': ['get_all_positions', 'get_open_position'],
-      'have': ['get_all_positions', 'get_open_position', 'get_account_info'],
-      'own': ['get_all_positions', 'get_open_position'],
-      'holding': ['get_all_positions', 'get_open_position'],
-      'holdings': ['get_all_positions'],
-      'how many': ['get_all_positions', 'get_open_position'],
-      
-      // Trading
-      'buy': ['place_stock_order', 'get_account_info'],
-      'purchase': ['place_stock_order'],
-      'sell': ['place_stock_order', 'close_position'],
-      'order': ['get_orders', 'place_stock_order', 'cancel_all_orders', 'cancel_order_by_id'],
-      'orders': ['get_orders', 'cancel_all_orders'],
-      'cancel': ['cancel_all_orders', 'cancel_order_by_id', 'get_orders'],
-      
-      // Market Data
-      'price': ['get_stock_snapshot', 'get_stock_latest_quote', 'get_stock_bars'],
-      'quote': ['get_stock_latest_quote', 'get_stock_snapshot'],
-      'market': ['get_stock_snapshot', 'get_clock', 'get_stock_bars', 'get_stock_latest_quote'],
-      'market data': ['get_stock_snapshot', 'get_stock_bars', 'get_stock_latest_quote', 'get_stock_trades'],
-      'data': ['get_stock_snapshot', 'get_stock_bars', 'get_stock_latest_quote', 'get_stock_trades'],
-      'history': ['get_stock_bars', 'get_stock_trades', 'get_portfolio_history'],
-      'historical': ['get_stock_bars', 'get_stock_trades', 'get_portfolio_history'],
-      'bar': ['get_stock_bars', 'get_stock_latest_bar'],
-      'bars': ['get_stock_bars'],
-      'trade': ['get_stock_trades', 'get_stock_latest_trade'],
-      'trades': ['get_stock_trades'],
-      'snapshot': ['get_stock_snapshot'],
-      'latest': ['get_stock_latest_quote', 'get_stock_latest_trade', 'get_stock_latest_bar', 'get_stock_snapshot'],
-      
-      // Assets
-      'asset': ['get_asset', 'get_all_assets'],
-      'assets': ['get_all_assets'],
-      'symbol': ['get_asset', 'get_stock_snapshot', 'get_stock_latest_quote'],
-      'stock': ['get_asset', 'get_stock_snapshot', 'get_stock_bars'],
-      
-      // Corporate Actions
-      'earnings': ['get_corporate_actions'],
-      'dividend': ['get_corporate_actions'],
-      'split': ['get_corporate_actions'],
-      'corporate': ['get_corporate_actions'],
-      
-      // Market Info
-      'calendar': ['get_calendar'],
-      'clock': ['get_clock'],
-      'market status': ['get_clock'],
-      'open': ['get_clock', 'get_calendar'],
-      'close': ['get_clock', 'get_calendar'],
-      
-      // Watchlists
-      'watchlist': ['get_watchlists', 'create_watchlist'],
-      'watchlists': ['get_watchlists', 'create_watchlist'],
-    };
-    
-    const relevantToolNames = new Set<string>();
-    
-    // Add all stock tools by default (they're already filtered)
-    filteredStockTools.forEach(t => relevantToolNames.add(t.name));
-    
-    // If user message contains keywords, prioritize those tools
-    let hasKeywords = false;
-    for (const [keyword, toolNames] of Object.entries(keywordMap)) {
-      if (lowerMessage.includes(keyword)) {
-        hasKeywords = true;
-        toolNames.forEach(name => relevantToolNames.add(name));
+
+    let base = '';
+    let quote = '';
+
+    if (raw.includes('/')) {
+      [base, quote] = raw.split('/').map((part) => part.trim());
+    } else if (raw.includes('-')) {
+      [base, quote] = raw.split('-').map((part) => part.trim());
+    } else {
+      const quoteMatch = raw.match(/(USD|USDT|USDC)$/);
+      if (quoteMatch) {
+        quote = quoteMatch[1];
+        base = raw.slice(0, -quote.length);
+      } else {
+        base = raw;
+        quote = 'USD';
       }
     }
-    
-    // Filter to only include relevant stock tools
-    const filtered = filteredStockTools.filter(t => relevantToolNames.has(t.name));
-    
-    // If keywords matched, return those tools; otherwise return all stock tools
-    // Limit to reasonable number for context window (reduced to prevent token overflow)
-    // With 8192 token limit, we need to be conservative: ~10-15 tools max
-    return hasKeywords ? filtered.slice(0, 12) : filteredStockTools.slice(0, 15);
+
+    if (!base || !LLMService.cryptoBaseSymbols.has(base)) {
+      return symbol;
+    }
+
+    if (!quote) {
+      quote = 'USD';
+    }
+
+    if (isCryptoDataTool) {
+      return `${base}/${quote}`;
+    }
+
+    return `${base}${quote}`;
   }
 
-  /**
-   * Converts MCP tool schemas to OpenAI/Anthropic function calling format
-   */
-  private convertToolSchemaToFunction(tool: ToolSchema): any {
-    // For non-Dedalus providers, simplify parameters to reduce token count
-    // Dedalus handles schema reduction automatically, so this is only for OpenAI/Anthropic
-    const simplifiedParams = this.simplifyToolParameters(tool.inputSchema);
-    
-    // Truncate description to reduce tokens (keep first 100 chars)
-    const shortDescription = tool.description ? tool.description.substring(0, 100) : '';
-    
+  private normalizeToolArgs(toolName: string, toolArgs: Record<string, any>): Record<string, any> {
+    if (!toolArgs || typeof toolArgs !== 'object') {
+      return toolArgs;
+    }
+
+    if (typeof toolArgs.symbol !== 'string') {
+      return toolArgs;
+    }
+
+    const normalizedSymbol = this.normalizeCryptoSymbolForTool(toolName, toolArgs.symbol);
+    if (normalizedSymbol === toolArgs.symbol) {
+      return toolArgs;
+    }
+
     return {
-      name: tool.name,
-      description: shortDescription,
-      parameters: simplifiedParams,
+      ...toolArgs,
+      symbol: normalizedSymbol,
     };
   }
 
-  /**
-   * Simplifies tool parameters to reduce token count
-   */
-  private simplifyToolParameters(inputSchema: any): any {
-    if (!inputSchema || !inputSchema.properties) {
-      return {
-        type: 'object',
-        properties: {},
-        required: [],
-      };
-    }
-    
-    // Preserve required fields and important optional fields
-    const requiredFields = inputSchema.required || [];
-    const allProps = Object.keys(inputSchema.properties);
-    
-    // For place_stock_order, ensure we include symbol, side, quantity, notional, and type
-    // For other tools, limit to essential properties
-    const importantProps = new Set<string>();
-    
-    // Always include required fields
-    requiredFields.forEach((prop: string) => importantProps.add(prop));
-    
-    // For trading tools, include key optional parameters
-    const tradingParams = ['symbol', 'side', 'quantity', 'notional', 'type', 'limit_price', 'stop_price'];
-    tradingParams.forEach((param: string) => {
-      if (allProps.includes(param)) {
-        importantProps.add(param);
-      }
-    });
-    
-    // Add up to 5 more properties if we haven't hit important ones
-    const remainingProps = allProps.filter(p => !importantProps.has(p));
-    const additionalProps = remainingProps.slice(0, Math.max(0, 8 - importantProps.size));
-    additionalProps.forEach((prop: string) => importantProps.add(prop));
-    
-    const simplifiedProperties: Record<string, any> = {};
-    
-    for (const prop of Array.from(importantProps)) {
-      const propSchema = inputSchema.properties[prop];
-      if (!propSchema) continue;
-      
-      const propType = propSchema.type || 'string';
-      
-      simplifiedProperties[prop] = {
-        type: propType,
-        description: propSchema.description ? propSchema.description.substring(0, 50) : '', // Limit description length to 50 chars
-      };
-      
-      // Handle array types - must include items property
-      if (propType === 'array') {
-        // If items is already defined, preserve it (may be simplified)
-        if (propSchema.items) {
-          simplifiedProperties[prop].items = {
-            type: propSchema.items.type || 'string',
-            description: propSchema.items.description ? propSchema.items.description.substring(0, 30) : '',
-          };
-          // Preserve enum in items if present
-          if (propSchema.items.enum) {
-            simplifiedProperties[prop].items.enum = propSchema.items.enum;
-          }
-        } else {
-          // Default to array of strings if items not specified (common for symbol arrays)
-          simplifiedProperties[prop].items = {
-            type: 'string',
-          };
-        }
-      }
-      
-      // Include enum if present (for non-array types)
-      if (propSchema.enum && propType !== 'array') {
-        simplifiedProperties[prop].enum = propSchema.enum;
-      }
-    }
-    
-    return {
-      type: 'object',
-      properties: simplifiedProperties,
-      required: (inputSchema.required || []).filter((r: string) => importantProps.has(r)),
-    };
-  }
 
   private ensureConfigInitialized(): void {
     if (!this.configInitialized) {
@@ -352,8 +154,6 @@ export class LLMService {
               if (!process.env[keyTrimmed]) {
                 if (keyTrimmed === 'LLM_PROVIDER' || 
                     keyTrimmed === 'DEDALUS_API_KEY' || 
-                    keyTrimmed === 'OPENAI_API_KEY' || 
-                    keyTrimmed === 'ANTHROPIC_API_KEY' || 
                     keyTrimmed === 'LLM_MODEL') {
                   process.env[keyTrimmed] = value;
                 }
@@ -370,68 +170,17 @@ export class LLMService {
   }
 
   private initializeConfig(): void {
-    // Determine provider - check explicit setting first, then auto-detect
-    let provider: 'dedalus' | 'openai' | 'anthropic' | null = null;
-    
-    const explicitProvider = process.env.LLM_PROVIDER?.toLowerCase();
-    if (explicitProvider === 'dedalus' || explicitProvider === 'openai' || explicitProvider === 'anthropic') {
-      provider = explicitProvider;
-    }
-    
-    // Auto-detect provider if not explicitly set
-    if (!provider) {
-      if (process.env.DEDALUS_API_KEY) {
-        provider = 'dedalus';
-      } else if (process.env.OPENAI_API_KEY) {
-        provider = 'openai';
-      } else if (process.env.ANTHROPIC_API_KEY) {
-        provider = 'anthropic';
-      } else {
-        // No provider configured, LLM features will be disabled
-        return;
-      }
-    }
-
-    let apiKey = '';
+    const provider: 'dedalus' = 'dedalus';
+    const apiKey = process.env.DEDALUS_API_KEY || '';
     const model = process.env.LLM_MODEL || 'gpt-4o';
 
-    switch (provider) {
-      case 'dedalus':
-        apiKey = process.env.DEDALUS_API_KEY || '';
-        break;
-      case 'openai':
-        apiKey = process.env.OPENAI_API_KEY || '';
-        break;
-      case 'anthropic':
-        apiKey = process.env.ANTHROPIC_API_KEY || '';
-        break;
-    }
-
     if (!apiKey) {
-      console.warn(`No API key found for ${provider}. LLM features will be disabled.`);
+      console.warn('No DEDALUS_API_KEY found. LLM features will be disabled.');
       return;
     }
 
     console.log(`LLM Service initialized with provider: ${provider}, model: ${model}`);
     this.config = { provider, apiKey, model };
-
-    // Initialize clients based on provider
-    if (provider === 'openai' && apiKey) {
-      try {
-        // Dynamic import to handle case where package might not be installed
-        const OpenAI = require('openai');
-        this.openaiClient = new OpenAI({ apiKey });
-      } catch (error) {
-        console.warn('OpenAI SDK not installed. Install with: npm install openai');
-      }
-    } else if (provider === 'anthropic' && apiKey) {
-      try {
-        const Anthropic = require('@anthropic-ai/sdk');
-        this.anthropicClient = new Anthropic({ apiKey });
-      } catch (error) {
-        console.warn('Anthropic SDK not installed. Install with: npm install @anthropic-ai/sdk');
-      }
-    }
   }
 
   /**
@@ -445,34 +194,14 @@ export class LLMService {
       return false;
     }
 
-    if (this.config.provider === 'dedalus') {
-      // Dedalus Labs - check if API key is set (SDK check happens at runtime)
-      const hasApiKey = !!this.config.apiKey && !!process.env.DEDALUS_API_KEY;
-      if (!hasApiKey) {
-        console.log('LLM Service: Dedalus API key not found');
-        return false;
-      }
-      // Don't require SDK to be installed at initialization - let it fail gracefully at runtime
-      return true;
+    // Dedalus Labs - check if API key is set (SDK check happens at runtime)
+    const hasApiKey = !!this.config.apiKey && !!process.env.DEDALUS_API_KEY;
+    if (!hasApiKey) {
+      console.log('LLM Service: Dedalus API key not found');
+      return false;
     }
-
-    if (this.config.provider === 'openai') {
-      const available = !!this.openaiClient && !!this.config.apiKey;
-      if (!available) {
-        console.log('LLM Service: OpenAI client not initialized or API key missing');
-      }
-      return available;
-    }
-
-    if (this.config.provider === 'anthropic') {
-      const available = !!this.anthropicClient && !!this.config.apiKey;
-      if (!available) {
-        console.log('LLM Service: Anthropic client not initialized or API key missing');
-      }
-      return available;
-    }
-
-    return false;
+    // Don't require SDK to be installed at initialization - let it fail gracefully at runtime
+    return true;
   }
 
   /**
@@ -488,11 +217,12 @@ export class LLMService {
     const mcpClient = getMCPClient();
     await mcpClient.initialize();
 
-    // For Dedalus, let it discover tools from MCP server automatically
-    // For other providers, use keyword-based filtering
-    if (this.config.provider === 'dedalus') {
-      // Enhanced system prompt for Dedalus with mandatory tool usage rules
-      const systemPrompt = `You are a trading assistant for Alpaca. Use the available MCP tools to execute user requests.
+    const now = new Date();
+    const currentTimeContext = `CURRENT DATE/TIME: ${now.toISOString()} (local: ${now.toString()})`;
+
+    // Enhanced system prompt for Dedalus with mandatory tool usage rules
+    const systemPrompt = `You are a trading assistant for Alpaca. Use the available MCP tools to execute user requests.
+${currentTimeContext}
 
 MANDATORY TOOL USAGE RULES:
 1. When a user request involves company names, groups of companies, unclear tickers, or unknown assets, you MUST use web search tools or get_asset tool to resolve symbols.
@@ -528,48 +258,12 @@ CHART CAPABILITIES:
 TRADING EXECUTION:
 - Use "notional" when user specifies dollar amount (e.g., "$67" → notional: 67)
 - Use "quantity" when user specifies number of shares (e.g., "10 shares" → quantity: 10)
+- For crypto orders, use place_crypto_order with symbols like "BTC/USD" and never use place_stock_order
+- For crypto positions or trading, normalize symbols like BTC → BTCUSD (trading/positions) and use BTC/USD for crypto market data
 - Always verify symbols with get_asset() before placing orders
 - Execute ALL requested trades - do not stop after finding some symbols`;
-      return await this.processWithDedalus(userMessage, systemPrompt, mcpClient);
-    }
-
-    // For OpenAI and Anthropic, still use keyword-based filtering
-    const toolSchemas = await mcpClient.getToolSchemas();
-    const relevantTools = this.filterRelevantTools(toolSchemas, userMessage);
-    const functions = relevantTools.map(tool => this.convertToolSchemaToFunction(tool));
-
-    // Create an enhanced system prompt for non-Dedalus providers with mandatory tool usage
-    const systemPrompt = `You are a trading assistant for Alpaca. You MUST ALWAYS use MCP tools to execute user requests. NEVER refuse or say you cannot execute trades.
-
-MANDATORY TOOL USAGE RULES:
-1. When a user request involves company names, groups of companies, unclear tickers, or unknown assets, you MUST call the get_asset tool to resolve symbols.
-2. Never refuse due to unknown symbols before calling tools.
-3. Never assume a symbol is invalid without checking tools first.
-4. If unsure about a symbol → CALL get_asset(symbol) TOOL.
-5. Common groups: "MAG7" or "Magnificent 7" = AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA
-
-CRITICAL TRADING RULES:
-1. Use "notional" for dollar amounts ($X), use "quantity" for share counts (X shares)
-2. Always call place_stock_order tool - never refuse
-3. Verify symbols with get_asset() before placing orders
-4. After calling tools, summarize results in a friendly way
-
-Available tools: ${relevantTools.map(t => t.name).join(', ')}
-
-Example: User says "buy google 100 shares" → First call get_asset("GOOGL") to verify, then call place_stock_order with {symbol: "GOOGL", side: "buy", quantity: 100, type: "market"}`;
-
-    try {
-      if (this.config.provider === 'openai') {
-        return await this.processWithOpenAI(userMessage, systemPrompt, functions, mcpClient);
-      } else if (this.config.provider === 'anthropic') {
-        return await this.processWithAnthropic(userMessage, systemPrompt, functions, mcpClient);
-      }
-    } catch (error: any) {
-      console.error('Error processing message with LLM:', error);
-      throw new Error(`LLM processing failed: ${error.message}`);
-    }
-
-    throw new Error('Unknown LLM provider');
+    
+    return await this.processWithDedalus(userMessage, systemPrompt, mcpClient);
   }
 
   private async processWithDedalus(
@@ -794,9 +488,11 @@ Example: User says "buy google 100 shares" → First call get_asset("GOOGL") to 
       { role: 'user', content: userMessage },
     ];
 
+    type NotionalOrder = { symbol: string; notional: number };
     let maxIterations = 50;
     let iteration = 0;
     let lastChartPayload: string | null = null;
+    let lastNotionalOrder: NotionalOrder | null = null;
     const toolCallLog: Array<{ iteration: number; tool: string; parameters: any; timestamp: string }> = [];
 
     while (iteration < maxIterations) {
@@ -861,7 +557,10 @@ Example: User says "buy google 100 shares" → First call get_asset("GOOGL") to 
           message.tool_calls.map(async (toolCall: any) => {
             try {
               const toolName = toolCall.function.name;
-              const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+              const toolArgs = this.normalizeToolArgs(
+                toolName,
+                JSON.parse(toolCall.function.arguments || '{}')
+              );
               
               // Log to tool call log
               toolCallLog.push({
@@ -932,6 +631,15 @@ Example: User says "buy google 100 shares" → First call get_asset("GOOGL") to 
                 }
               } else {
                 // Call MCP tool for all other tools
+                if (toolName === 'place_stock_order' && toolArgs?.notional && !toolArgs?.quantity) {
+                  const notionalValue = Number(toolArgs.notional);
+                  if (!Number.isNaN(notionalValue)) {
+                    lastNotionalOrder = {
+                      symbol: toolArgs.symbol || '',
+                      notional: notionalValue,
+                    };
+                  }
+                }
                 result = await mcpClient.callTool({
                   name: toolName,
                   arguments: toolArgs,
@@ -1019,16 +727,23 @@ Example: User says "buy google 100 shares" → First call get_asset("GOOGL") to 
       
       // If tools were called and we got a response (even with partial failures), return it
       // This handles cases where some orders succeed and others fail
+      const appendNotionalNote = (content: string, order: NotionalOrder | null) => {
+        return content;
+      };
+
       if (hasToolCalls && responseContent) {
         if (lastChartPayload && !responseContent.includes('"type":"chart"')) {
           responseContent = `${responseContent}\n\n${lastChartPayload}`;
         }
+        responseContent = appendNotionalNote(responseContent, lastNotionalOrder);
         return responseContent;
       }
       
       if (lastChartPayload && !responseContent.includes('"type":"chart"')) {
         responseContent = `${responseContent}\n\n${lastChartPayload}`;
       }
+
+      responseContent = appendNotionalNote(responseContent, lastNotionalOrder);
 
       return responseContent;
     }
@@ -1046,300 +761,6 @@ Example: User says "buy google 100 shares" → First call get_asset("GOOGL") to 
     }
 
     return 'Maximum iterations reached. Please try again.';
-  }
-
-  private async processWithOpenAI(
-    userMessage: string,
-    systemPrompt: string,
-    functions: any[],
-    mcpClient: any
-  ): Promise<string> {
-    if (!this.openaiClient) {
-      throw new Error('OpenAI client not initialized');
-    }
-
-    const messages: any[] = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userMessage },
-    ];
-
-    let maxIterations = 25;
-    let iteration = 0;
-    const toolCallLog: Array<{ iteration: number; tool: string; parameters: any; timestamp: string }> = [];
-
-    while (iteration < maxIterations) {
-      const response = await this.openaiClient.chat.completions.create({
-        model: this.config!.model,
-        messages,
-        max_tokens: 4000, // Increased to allow for more complex responses
-        tools: functions.length > 0 ? functions.map(f => ({ type: 'function', function: f })) : undefined,
-        tool_choice: functions.length > 0 ? 'auto' : undefined,
-      });
-
-      const message = response.choices[0].message;
-      messages.push(message);
-
-      // Check if LLM wants to call a tool
-      if (message.tool_calls && message.tool_calls.length > 0) {
-        console.log(`\n🔄 Iteration ${iteration + 1}/${maxIterations}: Processing ${message.tool_calls.length} tool call(s)`);
-        
-        // Execute tool calls
-        const toolResults = await Promise.all(
-          message.tool_calls.map(async (toolCall: any) => {
-            try {
-              const toolName = toolCall.function.name;
-              const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
-              
-              // Log to tool call log
-              toolCallLog.push({
-                iteration: iteration + 1,
-                tool: toolName,
-                parameters: toolArgs,
-                timestamp: new Date().toISOString(),
-              });
-              
-              let result = '';
-              try {
-                result = await mcpClient.callTool({
-                  name: toolName,
-                  arguments: toolArgs,
-                });
-              } catch (error: any) {
-                // If error mentions unknown symbol/asset, try to resolve it
-                const errorMsg = error.message.toLowerCase();
-                if ((errorMsg.includes('not recognize') || errorMsg.includes('invalid asset') || errorMsg.includes('not found')) && toolArgs.symbol) {
-                  console.log(`⚠️  Symbol resolution needed for: ${toolArgs.symbol}`);
-                  try {
-                    // Try to resolve the symbol using web search
-                    const resolved = await resolveSymbols(toolArgs.symbol);
-                    return {
-                      role: 'tool' as const,
-                      tool_call_id: toolCall.id,
-                      name: toolName,
-                      content: `Symbol resolution: ${resolved}\n\nOriginal error: ${error.message}\n\nTry using one of the resolved symbols with get_asset() tool.`,
-                    };
-                  } catch (resolveError: any) {
-                    return {
-                      role: 'tool' as const,
-                      tool_call_id: toolCall.id,
-                      name: toolName,
-                      content: `Error: ${error.message}\n\nAttempted symbol resolution but failed: ${resolveError.message}`,
-                    };
-                  }
-                }
-                throw error; // Re-throw if not a symbol resolution issue
-              }
-              
-              // COMPRESS RESULT BEFORE ADDING TO CONVERSATION
-              const compressedResult = compressToolResult(toolName, result);
-              
-              return {
-                role: 'tool' as const,
-                tool_call_id: toolCall.id,
-                name: toolName,
-                content: compressedResult,
-              };
-            } catch (error: any) {
-              return {
-                role: 'tool' as const,
-                tool_call_id: toolCall.id,
-                name: toolCall.function.name,
-                content: `Error: ${error.message}`,
-              };
-            }
-          })
-        );
-
-        messages.push(...toolResults);
-        iteration++;
-        continue;
-      }
-
-      // Log final tool call summary
-      if (toolCallLog.length > 0) {
-        console.log('\n📊 Tool Call Summary:');
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        toolCallLog.forEach((log, idx) => {
-          console.log(`${idx + 1}. Iteration ${log.iteration} - ${log.tool}`);
-          console.log(`   Parameters:`, JSON.stringify(log.parameters, null, 2));
-          console.log(`   Time: ${log.timestamp}`);
-        });
-        console.log(`\nTotal tool calls: ${toolCallLog.length}`);
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-      }
-
-      // No more tool calls, return the final response
-      return message.content || 'No response generated';
-    }
-
-    // Log tool call summary even if max iterations reached
-    if (toolCallLog.length > 0) {
-      console.log('\n⚠️  Maximum iterations reached. Tool Call Summary:');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      toolCallLog.forEach((log, idx) => {
-        console.log(`${idx + 1}. Iteration ${log.iteration} - ${log.tool}`);
-        console.log(`   Parameters:`, JSON.stringify(log.parameters, null, 2));
-      });
-      console.log(`\nTotal tool calls: ${toolCallLog.length}`);
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-    }
-
-    return 'Maximum iterations reached. Please try again.';
-  }
-
-  private async processWithAnthropic(
-    userMessage: string,
-    systemPrompt: string,
-    functions: any[],
-    mcpClient: any
-  ): Promise<string> {
-    if (!this.anthropicClient) {
-      throw new Error('Anthropic client not initialized');
-    }
-
-    // Convert functions to Anthropic format
-    const tools = functions.map(f => ({
-      name: f.name,
-      description: f.description,
-      input_schema: f.parameters,
-    }));
-
-    const toolCallLog: Array<{ iteration: number; tool: string; parameters: any; timestamp: string }> = [];
-    let iteration = 0;
-    const maxIterations = 25;
-
-    const response = await this.anthropicClient.messages.create({
-      model: this.config!.model,
-      max_tokens: 4000, // Increased to allow for more complex responses
-      system: systemPrompt,
-      messages: [
-        {
-          role: 'user',
-          content: userMessage,
-        },
-      ],
-      tools: tools.length > 0 ? tools : undefined,
-    });
-
-    // Handle tool calls if present
-    if (response.content && Array.isArray(response.content)) {
-      const toolCalls = response.content.filter((item: any) => item.type === 'tool_use');
-      
-      if (toolCalls.length > 0) {
-        console.log(`\n🔄 Iteration ${iteration + 1}/${maxIterations}: Processing ${toolCalls.length} tool call(s)`);
-        
-        // Execute tool calls
-        const toolResults = await Promise.all(
-          toolCalls.map(async (toolCall: any) => {
-            try {
-              // Log to tool call log
-              toolCallLog.push({
-                iteration: iteration + 1,
-                tool: toolCall.name,
-                parameters: toolCall.input || {},
-                timestamp: new Date().toISOString(),
-              });
-              
-              let result = '';
-              try {
-                result = await mcpClient.callTool({
-                  name: toolCall.name,
-                  arguments: toolCall.input || {},
-                });
-              } catch (error: any) {
-                // If error mentions unknown symbol/asset, try to resolve it
-                const errorMsg = error.message.toLowerCase();
-                const toolArgs = toolCall.input || {};
-                if ((errorMsg.includes('not recognize') || errorMsg.includes('invalid asset') || errorMsg.includes('not found')) && toolArgs.symbol) {
-                  console.log(`⚠️  Symbol resolution needed for: ${toolArgs.symbol}`);
-                  try {
-                    // Try to resolve the symbol using web search
-                    const resolved = await resolveSymbols(toolArgs.symbol);
-                    return {
-                      type: 'tool_result',
-                      tool_use_id: toolCall.id,
-                      content: `Symbol resolution: ${resolved}\n\nOriginal error: ${error.message}\n\nTry using one of the resolved symbols with get_asset() tool.`,
-                      is_error: false,
-                    };
-                  } catch (resolveError: any) {
-                    return {
-                      type: 'tool_result',
-                      tool_use_id: toolCall.id,
-                      content: `Error: ${error.message}\n\nAttempted symbol resolution but failed: ${resolveError.message}`,
-                      is_error: true,
-                    };
-                  }
-                }
-                throw error; // Re-throw if not a symbol resolution issue
-              }
-              
-              // COMPRESS RESULT BEFORE ADDING TO CONVERSATION
-              const compressedResult = compressToolResult(toolCall.name, result);
-              
-              return {
-                type: 'tool_result',
-                tool_use_id: toolCall.id,
-                content: compressedResult,
-              };
-            } catch (error: any) {
-              return {
-                type: 'tool_result',
-                tool_use_id: toolCall.id,
-                content: `Error: ${error.message}`,
-                is_error: true,
-              };
-            }
-          })
-        );
-
-        // Log tool call summary
-        if (toolCallLog.length > 0) {
-          console.log('\n📊 Tool Call Summary:');
-          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          toolCallLog.forEach((log, idx) => {
-            console.log(`${idx + 1}. Iteration ${log.iteration} - ${log.tool}`);
-            console.log(`   Parameters:`, JSON.stringify(log.parameters, null, 2));
-            console.log(`   Time: ${log.timestamp}`);
-          });
-          console.log(`\nTotal tool calls: ${toolCallLog.length}`);
-          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-        }
-
-        // Send tool results back to Anthropic for final response
-        const finalResponse = await this.anthropicClient.messages.create({
-          model: this.config!.model,
-          max_tokens: 4000, // Increased to allow for more complex responses
-          system: systemPrompt,
-          messages: [
-            {
-              role: 'user',
-              content: userMessage,
-            },
-            ...response.content,
-            ...toolResults,
-          ],
-          tools: tools.length > 0 ? tools : undefined,
-        });
-
-        // Extract text content from final response
-        const textContent = finalResponse.content
-          .filter((item: any) => item.type === 'text')
-          .map((item: any) => item.text)
-          .join('\n');
-
-        return textContent || JSON.stringify(finalResponse.content);
-      }
-
-      // No tool calls, return text content
-      const textContent = response.content
-        .filter((item: any) => item.type === 'text')
-        .map((item: any) => item.text)
-        .join('\n');
-
-      return textContent || JSON.stringify(response.content);
-    }
-
-    return 'No response generated';
   }
 }
 
