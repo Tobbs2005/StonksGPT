@@ -1,5 +1,7 @@
 import { getMCPClient } from '../mcp/client';
 import { MCPToolCall } from '../types';
+import { compressToolResult } from './result-compressor';
+import { resolveSymbols, searchWeb } from './web-search';
 
 export interface LLMConfig {
   provider: 'dedalus' | 'openai' | 'anthropic';
@@ -211,7 +213,8 @@ export class LLMService {
    * Converts MCP tool schemas to OpenAI/Anthropic function calling format
    */
   private convertToolSchemaToFunction(tool: ToolSchema): any {
-    // Simplify parameters to reduce token count
+    // For non-Dedalus providers, simplify parameters to reduce token count
+    // Dedalus handles schema reduction automatically, so this is only for OpenAI/Anthropic
     const simplifiedParams = this.simplifyToolParameters(tool.inputSchema);
     
     // Truncate description to reduce tokens (keep first 100 chars)
@@ -236,12 +239,36 @@ export class LLMService {
       };
     }
     
-    // Limit properties to essential ones and simplify descriptions
-    const simplifiedProperties: Record<string, any> = {};
-    const essentialProps = Object.keys(inputSchema.properties).slice(0, 5); // Limit to 5 properties to reduce tokens
+    // Preserve required fields and important optional fields
+    const requiredFields = inputSchema.required || [];
+    const allProps = Object.keys(inputSchema.properties);
     
-    for (const prop of essentialProps) {
+    // For place_stock_order, ensure we include symbol, side, quantity, notional, and type
+    // For other tools, limit to essential properties
+    const importantProps = new Set<string>();
+    
+    // Always include required fields
+    requiredFields.forEach((prop: string) => importantProps.add(prop));
+    
+    // For trading tools, include key optional parameters
+    const tradingParams = ['symbol', 'side', 'quantity', 'notional', 'type', 'limit_price', 'stop_price'];
+    tradingParams.forEach((param: string) => {
+      if (allProps.includes(param)) {
+        importantProps.add(param);
+      }
+    });
+    
+    // Add up to 5 more properties if we haven't hit important ones
+    const remainingProps = allProps.filter(p => !importantProps.has(p));
+    const additionalProps = remainingProps.slice(0, Math.max(0, 8 - importantProps.size));
+    additionalProps.forEach((prop: string) => importantProps.add(prop));
+    
+    const simplifiedProperties: Record<string, any> = {};
+    
+    for (const prop of Array.from(importantProps)) {
       const propSchema = inputSchema.properties[prop];
+      if (!propSchema) continue;
+      
       const propType = propSchema.type || 'string';
       
       simplifiedProperties[prop] = {
@@ -278,7 +305,7 @@ export class LLMService {
     return {
       type: 'object',
       properties: simplifiedProperties,
-      required: (inputSchema.required || []).filter((r: string) => essentialProps.includes(r)),
+      required: (inputSchema.required || []).filter((r: string) => importantProps.has(r)),
     };
   }
 
@@ -366,7 +393,7 @@ export class LLMService {
     }
 
     let apiKey = '';
-    const model = process.env.LLM_MODEL || 'gpt-4';
+    const model = process.env.LLM_MODEL || 'gpt-4o';
 
     switch (provider) {
       case 'dedalus':
@@ -464,8 +491,39 @@ export class LLMService {
     // For Dedalus, let it discover tools from MCP server automatically
     // For other providers, use keyword-based filtering
     if (this.config.provider === 'dedalus') {
-      // Simplified system prompt for Dedalus - it handles tool discovery automatically
-      const systemPrompt = `You are a trading assistant for Alpaca. Use the available MCP tools to execute user requests. Always call the appropriate tools when users make trading requests or ask questions about their account, positions, or market data. After calling tools, provide clear and friendly responses based on the results.`;
+      // Enhanced system prompt for Dedalus with mandatory tool usage rules
+      const systemPrompt = `You are a trading assistant for Alpaca. Use the available MCP tools to execute user requests.
+
+MANDATORY TOOL USAGE RULES:
+1. When a user request involves company names, groups of companies, unclear tickers, or unknown assets, you MUST use web search tools or get_asset tool to resolve symbols.
+2. Never refuse due to unknown symbols before calling tools.
+3. Never assume a symbol is invalid without checking tools first.
+4. If unsure about a symbol → USE WEB SEARCH TOOLS OR CALL get_asset() TOOL.
+5. Common groups: "MAG7" or "Magnificent 7" = AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA
+6. Always call the appropriate tools when users make trading requests or ask questions about your account, positions, or market data.
+7. After calling tools, provide clear and friendly responses based on the results.
+
+CRITICAL WORKFLOW FOR TRADING REQUESTS WITH COMPANY NAMES:
+When a user asks to buy/sell stocks by company name or industry (e.g., "buy $67 in each of the top 10 gold mining companies"):
+1. Use web_search or search_stock_symbols to find company names and their ticker symbols
+2. EXTRACT ticker symbols from search results (look for patterns like "NEM", "GOLD", "AEM", etc. or "$SYMBOL" format)
+3. For EACH potential ticker symbol found:
+   a. Call get_asset(symbol) to verify the symbol exists and is tradable
+   b. If valid, call place_stock_order with the appropriate parameters
+4. NEVER give up or refuse - keep searching and trying until you find valid symbols and execute the orders
+5. If search results don't contain clear ticker symbols, try different search queries or extract company names and search for each individually
+
+WEB SEARCH CAPABILITIES:
+- Use web_search(query) to research company names, stock groups, or market information
+- Use search_stock_symbols(query) to find ticker symbols for company names
+- Extract ticker symbols from search results (they are typically 1-5 uppercase letters like "NEM", "GOLD", "AEM")
+- Look for patterns in search results: "NYSE: NEM", "ticker: GOLD", "$SYMBOL", or just standalone uppercase letters
+
+TRADING EXECUTION:
+- Use "notional" when user specifies dollar amount (e.g., "$67" → notional: 67)
+- Use "quantity" when user specifies number of shares (e.g., "10 shares" → quantity: 10)
+- Always verify symbols with get_asset() before placing orders
+- Execute ALL requested trades - do not stop after finding some symbols`;
       return await this.processWithDedalus(userMessage, systemPrompt, mcpClient);
     }
 
@@ -474,19 +532,25 @@ export class LLMService {
     const relevantTools = this.filterRelevantTools(toolSchemas, userMessage);
     const functions = relevantTools.map(tool => this.convertToolSchemaToFunction(tool));
 
-    // Create a simplified system prompt for non-Dedalus providers
+    // Create an enhanced system prompt for non-Dedalus providers with mandatory tool usage
     const systemPrompt = `You are a trading assistant for Alpaca. You MUST ALWAYS use MCP tools to execute user requests. NEVER refuse or say you cannot execute trades.
 
-CRITICAL RULES:
-1. When user says "buy X shares of Y" or "buy Y X shares" → CALL place_stock_order tool immediately
-2. Extract: symbol (Y), quantity (X), side="buy", type="market" (unless limit price specified)
-3. For "buy google" → symbol is "GOOGL"
-4. NEVER say "I cannot" or "I don't have the ability" - ALWAYS call the tool
-5. After calling tools, summarize the results in a friendly way
+MANDATORY TOOL USAGE RULES:
+1. When a user request involves company names, groups of companies, unclear tickers, or unknown assets, you MUST call the get_asset tool to resolve symbols.
+2. Never refuse due to unknown symbols before calling tools.
+3. Never assume a symbol is invalid without checking tools first.
+4. If unsure about a symbol → CALL get_asset(symbol) TOOL.
+5. Common groups: "MAG7" or "Magnificent 7" = AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA
+
+CRITICAL TRADING RULES:
+1. Use "notional" for dollar amounts ($X), use "quantity" for share counts (X shares)
+2. Always call place_stock_order tool - never refuse
+3. Verify symbols with get_asset() before placing orders
+4. After calling tools, summarize results in a friendly way
 
 Available tools: ${relevantTools.map(t => t.name).join(', ')}
 
-Example: User says "buy google 100 shares" → Call place_stock_order with {symbol: "GOOGL", side: "buy", quantity: 100, type: "market"}`;
+Example: User says "buy google 100 shares" → First call get_asset("GOOGL") to verify, then call place_stock_order with {symbol: "GOOGL", side: "buy", quantity: 100, type: "market"}`;
 
     try {
       if (this.config.provider === 'openai') {
@@ -518,24 +582,52 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
         const client = new AsyncDedalus({ apiKey: this.config!.apiKey });
         const runner = new DedalusRunner(client);
 
-        // Configure MCP server connection for local alpaca-mcp-server
-        // Dedalus will automatically discover tools from the MCP server
-        const mcpServerConfig = {
-          name: 'alpaca-mcp-server',
-          command: 'uvx',
-          args: ['alpaca-mcp-server', 'serve'],
-          env: {
-            ALPACA_API_KEY: process.env.ALPACA_API_KEY,
-            ALPACA_SECRET_KEY: process.env.ALPACA_SECRET_KEY,
-            ALPACA_PAPER_TRADE: process.env.ALPACA_PAPER_TRADE || 'True',
+        // Configure MCP server connections
+        // Dedalus will automatically discover tools from the MCP servers
+        const mcpServers: any[] = [
+          // Alpaca trading MCP server
+          {
+            name: 'alpaca-mcp-server',
+            command: 'uvx',
+            args: ['alpaca-mcp-server', 'serve'],
+            env: {
+              ALPACA_API_KEY: process.env.ALPACA_API_KEY,
+              ALPACA_SECRET_KEY: process.env.ALPACA_SECRET_KEY,
+              ALPACA_PAPER_TRADE: process.env.ALPACA_PAPER_TRADE || 'True',
+            },
           },
-        };
+        ];
+
+        // Add web search MCP servers if available
+        // These provide web search capabilities for symbol resolution and research
+        const webSearchServers: string[] = [];
+        
+        // Check for web search MCP server environment variables
+        if (process.env.ENABLE_WEB_SEARCH_MCP !== 'false') {
+          // Add Exa semantic search (if configured)
+          if (process.env.EXA_API_KEY) {
+            webSearchServers.push('tsion/exa');
+          }
+          
+          // Add Brave Search (if configured)
+          if (process.env.BRAVE_API_KEY) {
+            webSearchServers.push('windsor/brave-search-mcp');
+          }
+          
+          // If no specific API keys, try adding Brave Search anyway (may work without key)
+          if (webSearchServers.length === 0) {
+            webSearchServers.push('windsor/brave-search-mcp');
+          }
+        }
+
+        // Add web search servers to MCP servers list
+        mcpServers.push(...webSearchServers);
 
         const response = await runner.run({
           input: userMessage,
           model: [this.config!.model],
-          mcp_servers: [mcpServerConfig],
-          // Don't pass tools - let Dedalus discover them from MCP server automatically
+          mcp_servers: mcpServers,
+          // Don't pass tools - let Dedalus discover them from MCP servers automatically
         });
 
         return response.content || response.text || JSON.stringify(response);
@@ -552,15 +644,100 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
     }
 
     // Fall back to REST API (OpenAI-compatible endpoint) if SDK not available
-    // For REST API, we still need tool schemas, but without keyword filtering
+    // Filter out options tools and limit to ~30 tools to stay within token limits
     if (!useSDK) {
       const toolSchemas = await mcpClient.getToolSchemas();
-      // Filter out crypto and options tools only (no keyword matching)
-      const stockTools = toolSchemas.filter((t: ToolSchema) => {
-        const name = t.name.toLowerCase();
-        return !name.includes('crypto') && !name.includes('option');
+      
+      // Filter out options tools
+      const filteredTools = toolSchemas.filter((tool: ToolSchema) => {
+        const name = tool.name.toLowerCase();
+        return !name.includes('option');
       });
-      const functions = stockTools.map((tool: ToolSchema) => this.convertToolSchemaToFunction(tool));
+      
+      // Limit to approximately 30 tools (prioritize stock trading tools)
+      // Stock trading and market data tools are most important
+      const stockTradingTools = filteredTools.filter((t: ToolSchema) => {
+        const name = t.name.toLowerCase();
+        return name.includes('place_stock_order') || 
+               name.includes('get_orders') || 
+               name.includes('cancel') ||
+               name.includes('position') ||
+               name.includes('account');
+      });
+      
+      const stockMarketDataTools = filteredTools.filter((t: ToolSchema) => {
+        const name = t.name.toLowerCase();
+        return name.includes('stock') && 
+               (name.includes('quote') || 
+                name.includes('bar') || 
+                name.includes('trade') || 
+                name.includes('snapshot'));
+      });
+      
+      const assetTools = filteredTools.filter((t: ToolSchema) => {
+        const name = t.name.toLowerCase();
+        return name.includes('asset') || 
+               name.includes('corporate') ||
+               name.includes('portfolio') ||
+               name.includes('watchlist') ||
+               name.includes('calendar') ||
+               name.includes('clock');
+      });
+      
+      // Add web search tools for symbol resolution and research
+      const webSearchTools: ToolSchema[] = [
+        {
+          name: 'web_search',
+          description: 'Search the web for information about companies, symbols, market data, or any topic. Use this to find ticker symbols, company information, or research topics.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              query: {
+                type: 'string',
+                description: 'The search query (e.g., "top 10 gold mining companies", "AAPL stock symbol", "Microsoft ticker")',
+              },
+            },
+            required: ['query'],
+          },
+        },
+        {
+          name: 'search_stock_symbols',
+          description: 'Search for stock ticker symbols given a company name or group name. Returns potential symbols and company information.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              query: {
+                type: 'string',
+                description: 'Company name or group name to search for (e.g., "Apple", "Gold mining companies", "MAG7")',
+              },
+            },
+            required: ['query'],
+          },
+        },
+      ];
+      
+      // Combine prioritized tools with web search tools
+      // Prioritize web search tools early so they're included even if we hit the limit
+      const prioritizedTools = [
+        ...webSearchTools, // Add web search tools first to ensure they're included
+        ...stockTradingTools,
+        ...stockMarketDataTools,
+        ...assetTools,
+      ];
+      
+      // Remove duplicates and limit to 30 (web search tools will be included)
+      const uniqueTools = Array.from(
+        new Map(prioritizedTools.map(t => [t.name, t])).values()
+      ).slice(0, 30);
+      
+      console.log(`📊 Filtered tools: ${toolSchemas.length} → ${uniqueTools.length} (removed options, added web search, limited to ~30)`);
+      
+      const functions = uniqueTools.map((tool: ToolSchema) => ({
+        name: tool.name,
+        description: tool.description || '',
+        parameters: tool.inputSchema || { type: 'object', properties: {} },
+      }));
+      
       return await this.processWithDedalusREST(userMessage, systemPrompt, functions, mcpClient);
     }
 
@@ -592,7 +769,7 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
       { role: 'user', content: userMessage },
     ];
 
-    let maxIterations = 25;
+    let maxIterations = 50;
     let iteration = 0;
     const toolCallLog: Array<{ iteration: number; tool: string; parameters: any; timestamp: string }> = [];
 
@@ -600,7 +777,7 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
       const requestBody: any = {
         model: model,
         messages: messages,
-        max_tokens: 4000, // Increased to allow for more complex responses (model limit is 8192 total)
+        max_tokens: 4000, // Using gpt-4o with 128k context window, so this is safe
       };
 
       // Only include tools and tool_choice if tools are available
@@ -619,6 +796,15 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
         }
       }
 
+      // Log request details for debugging (without sensitive data)
+      console.log(`📤 Dedalus API Request:`, {
+        model,
+        messageCount: messages.length,
+        toolCount: tools?.length || 0,
+        toolNames: tools?.map((t: any) => t.function?.name).slice(0, 5) || [],
+        requestSize: JSON.stringify(requestBody).length,
+      });
+
       const response = await fetch('https://api.dedaluslabs.ai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -630,6 +816,9 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.error(`❌ Dedalus API Error ${response.status}:`, errorText);
+        console.error(`Request body size: ${JSON.stringify(requestBody).length} bytes`);
+        console.error(`Number of tools: ${tools?.length || 0}`);
         throw new Error(`Dedalus API error: ${response.status} ${errorText}`);
       }
 
@@ -656,15 +845,45 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
                 timestamp: new Date().toISOString(),
               });
               
-              const result = await mcpClient.callTool({
-                name: toolName,
-                arguments: toolArgs,
-              });
+              let result: string;
+              
+              // Handle web search tools directly
+              if (toolName === 'web_search') {
+                console.log(`🔍 Calling web_search with query: "${toolArgs.query || ''}"`);
+                try {
+                  const { searchWeb } = await import('./web-search');
+                  result = await searchWeb(toolArgs.query || '');
+                  console.log(`✅ Web search result (${result.length} chars):`, result.substring(0, 200));
+                } catch (webError: any) {
+                  console.error('❌ Web search error:', webError);
+                  result = `Web search error: ${webError.message}`;
+                }
+              } else if (toolName === 'search_stock_symbols') {
+                console.log(`🔍 Calling search_stock_symbols with query: "${toolArgs.query || ''}"`);
+                try {
+                  const { resolveSymbols } = await import('./web-search');
+                  result = await resolveSymbols(toolArgs.query || '');
+                  console.log(`✅ Symbol search result (${result.length} chars):`, result.substring(0, 200));
+                } catch (symbolError: any) {
+                  console.error('❌ Symbol search error:', symbolError);
+                  result = `Symbol search error: ${symbolError.message}`;
+                }
+              } else {
+                // Call MCP tool for all other tools
+                result = await mcpClient.callTool({
+                  name: toolName,
+                  arguments: toolArgs,
+                });
+              }
+              
+              // COMPRESS RESULT BEFORE ADDING TO CONVERSATION
+              const compressedResult = compressToolResult(toolName, result);
+              
               return {
                 role: 'tool' as const,
                 tool_call_id: toolCall.id,
                 name: toolName,
-                content: result,
+                content: compressedResult,
               };
             } catch (error: any) {
               return {
@@ -679,17 +898,29 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
 
         messages.push(...toolResults);
         iteration++;
+        
+        // Log that we're continuing to get LLM response
+        console.log(`📝 Tool results added, continuing to iteration ${iteration + 1} to get LLM response...`);
         continue;
       }
 
-      // No tool calls - check if this is a trading command that should have used tools
+      // No tool calls - this is the final response
       const responseContent = message.content || 'No response generated';
+      console.log(`✅ Final LLM response (${responseContent.length} chars):`, responseContent.substring(0, 200));
       const lowerContent = responseContent.toLowerCase();
       const refusedKeywords = ["don't have the ability", "cannot execute", "unable to", "i'm sorry", "i cannot", "i don't have", "as an ai"];
       const isTradingCommand = /(buy|sell|purchase|trade|order)/i.test(userMessage);
       
-      // If LLM refused to execute a trading command, try to force tool usage with a follow-up
-      if (isTradingCommand && refusedKeywords.some(keyword => lowerContent.includes(keyword)) && iteration < maxIterations - 1) {
+      // Check if tools were actually called - if so, this is not a refusal, just an explanation
+      const hasToolCalls = toolCallLog.length > 0;
+      const mentionsSuccess = lowerContent.includes('successfully') || lowerContent.includes('placed') || lowerContent.includes('executed') || lowerContent.includes('completed');
+      const mentionsPartialFailure = lowerContent.includes('wasn\'t able') || lowerContent.includes('couldn\'t') || lowerContent.includes('failed') || lowerContent.includes('error');
+      
+      // If tools were called and response mentions success or partial failure, it's not a refusal
+      const isExplanationNotRefusal = hasToolCalls && (mentionsSuccess || mentionsPartialFailure);
+      
+      // If LLM refused to execute a trading command WITHOUT calling tools, try to force tool usage
+      if (isTradingCommand && !isExplanationNotRefusal && refusedKeywords.some(keyword => lowerContent.includes(keyword)) && iteration < maxIterations - 1) {
         // Add a follow-up message forcing tool usage
         messages.push({
           role: 'user',
@@ -699,9 +930,9 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
         continue; // Retry with forced instruction
       }
       
-      // If still refusing after retry, throw error
-      if (isTradingCommand && refusedKeywords.some(keyword => lowerContent.includes(keyword))) {
-        throw new Error(`LLM refused to execute trading command after ${iteration + 1} attempts. The model responded: "${responseContent}". This indicates the LLM is not calling the required tools. Please check your system prompt and tool configuration.`);
+      // If still refusing WITHOUT calling tools after retry, throw error
+      if (isTradingCommand && !isExplanationNotRefusal && refusedKeywords.some(keyword => lowerContent.includes(keyword))) {
+        throw new Error(`LLM refused to execute trading command after ${iteration + 1} attempts without calling tools. The model responded: "${responseContent}". This indicates the LLM is not calling the required tools. Please check your system prompt and tool configuration.`);
       }
       
       // Log final tool call summary
@@ -715,6 +946,12 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
         });
         console.log(`\nTotal tool calls: ${toolCallLog.length}`);
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      }
+      
+      // If tools were called and we got a response (even with partial failures), return it
+      // This handles cases where some orders succeed and others fail
+      if (hasToolCalls && responseContent) {
+        return responseContent;
       }
       
       return responseContent;
@@ -785,15 +1022,46 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
                 timestamp: new Date().toISOString(),
               });
               
-              const result = await mcpClient.callTool({
-                name: toolName,
-                arguments: toolArgs,
-              });
+              let result = '';
+              try {
+                result = await mcpClient.callTool({
+                  name: toolName,
+                  arguments: toolArgs,
+                });
+              } catch (error: any) {
+                // If error mentions unknown symbol/asset, try to resolve it
+                const errorMsg = error.message.toLowerCase();
+                if ((errorMsg.includes('not recognize') || errorMsg.includes('invalid asset') || errorMsg.includes('not found')) && toolArgs.symbol) {
+                  console.log(`⚠️  Symbol resolution needed for: ${toolArgs.symbol}`);
+                  try {
+                    // Try to resolve the symbol using web search
+                    const resolved = await resolveSymbols(toolArgs.symbol);
+                    return {
+                      role: 'tool' as const,
+                      tool_call_id: toolCall.id,
+                      name: toolName,
+                      content: `Symbol resolution: ${resolved}\n\nOriginal error: ${error.message}\n\nTry using one of the resolved symbols with get_asset() tool.`,
+                    };
+                  } catch (resolveError: any) {
+                    return {
+                      role: 'tool' as const,
+                      tool_call_id: toolCall.id,
+                      name: toolName,
+                      content: `Error: ${error.message}\n\nAttempted symbol resolution but failed: ${resolveError.message}`,
+                    };
+                  }
+                }
+                throw error; // Re-throw if not a symbol resolution issue
+              }
+              
+              // COMPRESS RESULT BEFORE ADDING TO CONVERSATION
+              const compressedResult = compressToolResult(toolName, result);
+              
               return {
                 role: 'tool' as const,
                 tool_call_id: toolCall.id,
                 name: toolName,
-                content: result,
+                content: compressedResult,
               };
             } catch (error: any) {
               return {
@@ -896,14 +1164,46 @@ Example: User says "buy google 100 shares" → Call place_stock_order with {symb
                 timestamp: new Date().toISOString(),
               });
               
-              const result = await mcpClient.callTool({
-                name: toolCall.name,
-                arguments: toolCall.input || {},
-              });
+              let result = '';
+              try {
+                result = await mcpClient.callTool({
+                  name: toolCall.name,
+                  arguments: toolCall.input || {},
+                });
+              } catch (error: any) {
+                // If error mentions unknown symbol/asset, try to resolve it
+                const errorMsg = error.message.toLowerCase();
+                const toolArgs = toolCall.input || {};
+                if ((errorMsg.includes('not recognize') || errorMsg.includes('invalid asset') || errorMsg.includes('not found')) && toolArgs.symbol) {
+                  console.log(`⚠️  Symbol resolution needed for: ${toolArgs.symbol}`);
+                  try {
+                    // Try to resolve the symbol using web search
+                    const resolved = await resolveSymbols(toolArgs.symbol);
+                    return {
+                      type: 'tool_result',
+                      tool_use_id: toolCall.id,
+                      content: `Symbol resolution: ${resolved}\n\nOriginal error: ${error.message}\n\nTry using one of the resolved symbols with get_asset() tool.`,
+                      is_error: false,
+                    };
+                  } catch (resolveError: any) {
+                    return {
+                      type: 'tool_result',
+                      tool_use_id: toolCall.id,
+                      content: `Error: ${error.message}\n\nAttempted symbol resolution but failed: ${resolveError.message}`,
+                      is_error: true,
+                    };
+                  }
+                }
+                throw error; // Re-throw if not a symbol resolution issue
+              }
+              
+              // COMPRESS RESULT BEFORE ADDING TO CONVERSATION
+              const compressedResult = compressToolResult(toolCall.name, result);
+              
               return {
                 type: 'tool_result',
                 tool_use_id: toolCall.id,
-                content: result,
+                content: compressedResult,
               };
             } catch (error: any) {
               return {

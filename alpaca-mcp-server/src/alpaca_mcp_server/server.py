@@ -19,6 +19,7 @@ import os
 import re
 import sys
 import time
+import uuid
 import argparse
 from datetime import datetime, timedelta, date, timezone
 from typing import Dict, Any, List, Optional, Union
@@ -2731,7 +2732,7 @@ async def get_orders(
 async def place_stock_order(
     symbol: str,
     side: str,
-    quantity: float,
+    quantity: Optional[float] = None,
     type: str = "market",
     time_in_force: Union[str, TimeInForce] = "day",
     order_class: Union[str, OrderClass] = None,
@@ -2740,7 +2741,8 @@ async def place_stock_order(
     trail_price: Optional[float] = None,
     trail_percent: Optional[float] = None,
     extended_hours: bool = False,
-    client_order_id: Optional[str] = None
+    client_order_id: Optional[str] = None,
+    notional: Optional[float] = None
 ) -> str:
     """
     Places a stock order using the specified order type and parameters.
@@ -2748,7 +2750,7 @@ async def place_stock_order(
     Args:
         symbol (str): Stock ticker symbol (e.g., 'AAPL', 'MSFT')
         side (str): Order side ('buy' or 'sell')
-        quantity (float): Number of shares to trade
+        quantity (Optional[float]): Number of shares to trade (required for non-market orders, or for market orders if notional not provided)
         type (str): Order type ('market', 'limit', 'stop', 'stop_limit', 'trailing_stop')
         time_in_force (Union[str, TimeInForce]): Time in force ('day', 'gtc', 'opg', 'cls', 'ioc', 'fok' or TimeInForce enum)
         order_class (Union[str, OrderClass]): Order class ('simple', 'bracket', 'oco', 'oto' or OrderClass enum)
@@ -2758,6 +2760,7 @@ async def place_stock_order(
         trail_percent (Optional[float]): Trail percent (for TRAILING_STOP)
         extended_hours (bool): Allow extended hours execution
         client_order_id (Optional[str]): Custom order identifier
+        notional (Optional[float]): Dollar amount to trade (market orders only, alternative to quantity)
 
     Returns:
         str: Order confirmation with details or error message
@@ -2797,19 +2800,27 @@ async def place_stock_order(
 
         # Create order based on type
         if order_type_lower == "market":
+            # For market orders, require exactly one of quantity or notional
+            if (quantity is None and notional is None) or (quantity is not None and notional is not None):
+                return "For MARKET orders, provide exactly one of quantity or notional."
             order_data = MarketOrderRequest(
                 symbol=symbol,
                 qty=quantity,
+                notional=notional,
                 side=order_side,
                 type=OrderType.MARKET,
                 time_in_force=tif_enum,
                 order_class=order_class_enum,
                 extended_hours=extended_hours,
-                client_order_id=client_order_id or f"order_{int(time.time())}"
+                client_order_id=client_order_id or f"order_{int(time.time() * 1000000)}_{uuid.uuid4().hex[:8]}"
             )
         elif order_type_lower == "limit":
             if limit_price is None:
                 return "limit_price is required for LIMIT orders."
+            if quantity is None:
+                return "quantity is required for LIMIT orders."
+            if notional is not None:
+                return "notional is not supported for LIMIT orders. Use quantity instead."
             order_data = LimitOrderRequest(
                 symbol=symbol,
                 qty=quantity,
@@ -2819,11 +2830,15 @@ async def place_stock_order(
                 order_class=order_class_enum,
                 limit_price=limit_price,
                 extended_hours=extended_hours,
-                client_order_id=client_order_id or f"order_{int(time.time())}"
+                client_order_id=client_order_id or f"order_{int(time.time() * 1000000)}_{uuid.uuid4().hex[:8]}"
             )
         elif order_type_lower == "stop":
             if stop_price is None:
                 return "stop_price is required for STOP orders."
+            if quantity is None:
+                return "quantity is required for STOP orders."
+            if notional is not None:
+                return "notional is not supported for STOP orders. Use quantity instead."
             order_data = StopOrderRequest(
                 symbol=symbol,
                 qty=quantity,
@@ -2833,11 +2848,15 @@ async def place_stock_order(
                 order_class=order_class_enum,
                 stop_price=stop_price,
                 extended_hours=extended_hours,
-                client_order_id=client_order_id or f"order_{int(time.time())}"
+                client_order_id=client_order_id or f"order_{int(time.time() * 1000000)}_{uuid.uuid4().hex[:8]}"
             )
         elif order_type_lower == "stop_limit":
             if stop_price is None or limit_price is None:
                 return "Both stop_price and limit_price are required for STOP_LIMIT orders."
+            if quantity is None:
+                return "quantity is required for STOP_LIMIT orders."
+            if notional is not None:
+                return "notional is not supported for STOP_LIMIT orders. Use quantity instead."
             order_data = StopLimitOrderRequest(
                 symbol=symbol,
                 qty=quantity,
@@ -2848,11 +2867,15 @@ async def place_stock_order(
                 stop_price=stop_price,
                 limit_price=limit_price,
                 extended_hours=extended_hours,
-                client_order_id=client_order_id or f"order_{int(time.time())}"
+                client_order_id=client_order_id or f"order_{int(time.time() * 1000000)}_{uuid.uuid4().hex[:8]}"
             )
         elif order_type_lower == "trailing_stop":
             if trail_price is None and trail_percent is None:
                 return "Either trail_price or trail_percent is required for TRAILING_STOP orders."
+            if quantity is None:
+                return "quantity is required for TRAILING_STOP orders."
+            if notional is not None:
+                return "notional is not supported for TRAILING_STOP orders. Use quantity instead."
             order_data = TrailingStopOrderRequest(
                 symbol=symbol,
                 qty=quantity,
@@ -2863,7 +2886,7 @@ async def place_stock_order(
                 trail_price=trail_price,
                 trail_percent=trail_percent,
                 extended_hours=extended_hours,
-                client_order_id=client_order_id or f"order_{int(time.time())}"
+                client_order_id=client_order_id or f"order_{int(time.time() * 1000000)}_{uuid.uuid4().hex[:8]}"
             )
         else:
             return f"Invalid order type: {type}. Must be one of: MARKET, LIMIT, STOP, STOP_LIMIT, TRAILING_STOP."
@@ -2979,7 +3002,7 @@ async def place_crypto_order(
                 side=order_side,
                 type=OrderType.MARKET,
                 time_in_force=tif_enum,
-                client_order_id=client_order_id or f"crypto_{int(time.time())}"
+                client_order_id=client_order_id or f"crypto_{int(time.time() * 1000000)}_{uuid.uuid4().hex[:8]}"
             )
         elif order_type_lower == "limit":
             if limit_price is None:
@@ -2995,7 +3018,7 @@ async def place_crypto_order(
                 type=OrderType.LIMIT,
                 time_in_force=tif_enum,
                 limit_price=limit_price,
-                client_order_id=client_order_id or f"crypto_{int(time.time())}"
+                client_order_id=client_order_id or f"crypto_{int(time.time() * 1000000)}_{uuid.uuid4().hex[:8]}"
             )
         elif order_type_lower == "stop_limit":
             if stop_price is None or limit_price is None:
@@ -3012,7 +3035,7 @@ async def place_crypto_order(
                 time_in_force=tif_enum,
                 stop_price=stop_price,
                 limit_price=limit_price,
-                client_order_id=client_order_id or f"crypto_{int(time.time())}"
+                client_order_id=client_order_id or f"crypto_{int(time.time() * 1000000)}_{uuid.uuid4().hex[:8]}"
             )
         else:
             return "Invalid order type for crypto. Use: market, limit, stop_limit."

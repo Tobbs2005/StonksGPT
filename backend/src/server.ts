@@ -51,6 +51,7 @@ const server = app.listen(PORT, () => {
 });
 
 // Set server timeout to prevent socket hang ups
-server.timeout = 30000; // 30 seconds
-server.keepAliveTimeout = 65000; // 65 seconds
-server.headersTimeout = 66000; // 66 seconds
+// Increased timeout for LLM requests that may include web searches
+server.timeout = 120000; // 120 seconds (2 minutes)
+server.keepAliveTimeout = 180000; // 180 seconds (3 minutes)
+server.headersTimeout = 181000; // 181 seconds (slightly higher than keepAliveTimeout)

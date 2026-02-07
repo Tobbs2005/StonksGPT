@@ -42,11 +42,50 @@ export function ChatInterface() {
 
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (error: any) {
+      // Extract detailed error information
+      let errorContent = '';
+      let suggestions: string[] = [];
+      
+      if (error.response?.data) {
+        // API error response
+        const errorData = error.response.data;
+        errorContent = errorData.error || 'Failed to process request';
+        suggestions = errorData.suggestions || [];
+      } else if (error.request) {
+        // Network error
+        errorContent = 'Unable to connect to the server. Please check your connection.';
+        suggestions = [
+          'Check your internet connection',
+          'Verify the backend server is running',
+          'Try again in a moment',
+        ];
+      } else {
+        // Other error
+        errorContent = error.message || 'An unexpected error occurred';
+      }
+      
+      // Format error message with suggestions
+      let formattedError = `**Error**: ${errorContent}`;
+      
+      if (suggestions.length > 0) {
+        formattedError += '\n\n**Suggestions:**\n';
+        suggestions.forEach((suggestion, index) => {
+          formattedError += `${index + 1}. ${suggestion}\n`;
+        });
+      }
+      
+      // Add details in development mode (check if details exist)
+      if (error.response?.data?.details) {
+        // Only show details if we're likely in dev mode (no production check needed)
+        formattedError += `\n\n_Details: ${error.response.data.details}_`;
+      }
+      
       const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `Error: ${error.message || 'Failed to process request'}`,
+        content: formattedError,
         timestamp: new Date(),
+        isError: true,
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {

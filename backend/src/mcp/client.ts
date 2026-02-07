@@ -35,18 +35,55 @@ export class MCPClient {
 
     try {
       console.log('Initializing MCP client...');
-      console.log('Command: uvx alpaca-mcp-server serve');
+      
+      const path = require('path');
+      const fs = require('fs');
+      const { execSync } = require('child_process');
+      const serverPath = path.join(__dirname, '../../../alpaca-mcp-server');
+      const cliPath = path.join(serverPath, 'src/alpaca_mcp_server/cli.py');
+      
+      let command = 'uvx';
+      let args: string[] = ['alpaca-mcp-server', 'serve'];
+      const env = {
+        ...process.env,
+        ALPACA_API_KEY: apiKey,
+        ALPACA_SECRET_KEY: secretKey,
+        ALPACA_PAPER_TRADE: process.env.ALPACA_PAPER_TRADE || 'True',
+      };
+      
+      // Try to use local server with uv run (faster than uvx --from)
+      // Fallback to uvx if uv run fails or local server not found
+      if (fs.existsSync(cliPath)) {
+        try {
+          // Try uv run first (fastest, uses local dependencies)
+          execSync('which uv', { stdio: 'ignore' });
+          command = 'uv';
+          args = ['run', '--directory', serverPath, 'alpaca-mcp-server', 'serve'];
+          console.log(`Using uv run with local server: ${serverPath}`);
+        } catch {
+          // uv not found, try python3 directly
+          try {
+            execSync('which python3', { stdio: 'ignore' });
+            command = 'python3';
+            args = ['-m', 'alpaca_mcp_server.cli', 'serve'];
+            env.PYTHONPATH = path.join(serverPath, 'src') + (env.PYTHONPATH ? ':' + env.PYTHONPATH : '');
+            console.log(`Using local Python module: ${cliPath}`);
+          } catch {
+            // Fallback to standard uvx
+            console.log('uv and python3 not found, using uvx from PyPI');
+          }
+        }
+      } else {
+        console.log('Local server not found, using uvx from PyPI');
+      }
+      
+      console.log(`Command: ${command} ${args.join(' ')}`);
 
       // Create transport - this will spawn the process
       this.transport = new StdioClientTransport({
-        command: 'uvx',
-        args: ['alpaca-mcp-server', 'serve'],
-        env: {
-          ...process.env,
-          ALPACA_API_KEY: apiKey,
-          ALPACA_SECRET_KEY: secretKey,
-          ALPACA_PAPER_TRADE: process.env.ALPACA_PAPER_TRADE || 'True',
-        },
+        command: command,
+        args: args,
+        env: env,
       });
 
       // Create client
@@ -80,10 +117,10 @@ export class MCPClient {
         }
       }
 
-      // Connect to the server with timeout
+      // Connect to the server with timeout (increased for local Python module startup)
       const connectPromise = this.client.connect(this.transport);
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Connection timeout after 10 seconds')), 10000);
+        setTimeout(() => reject(new Error('Connection timeout after 30 seconds')), 30000);
       });
 
       await Promise.race([connectPromise, timeoutPromise]);

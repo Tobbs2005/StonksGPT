@@ -43,13 +43,14 @@ classifiers = [
 
 # Runtime dependencies (keep minimal and compatible with current requirements.txt)
 dependencies = [
-    "mcp>=1.23.0,<1.25.0",           # Model Context Protocol framework (includes DNS rebinding protection defaults)
-    "alpaca-py>=0.29.0",           # Alpaca Trading API client
-    "python-dotenv>=1.0.0",        # Environment variable management
-    "click>=8.1.0",                # CLI framework for commands
-    "pytz>=2024.1",                # Required by alpaca-py for timezone handling
-    "python-multipart>=0.0.22",    # Security fix: avoid vulnerable multipart versions
-    "urllib3>=2.6.3"               # Security fix: avoid redirect decompression bomb issue
+    "mcp>=1.23.0,<1.25.0", # Model Context Protocol framework (includes DNS rebinding protection defaults)
+    "alpaca-py>=0.29.0", # Alpaca Trading API client
+    "python-dotenv>=1.0.0", # Environment variable management
+    "click>=8.1.0", # CLI framework for commands
+    "pytz>=2024.1", # Required by alpaca-py for timezone handling
+    "python-multipart>=0.0.22", # Security fix: avoid vulnerable multipart versions # Security fix: avoid redirect decompression bomb issue
+    "urllib3>=2.6.3",
+    "dedalus-labs>=0.2.0",
 ]
 
 # Optional development dependencies

@@ -3,3 +3,4 @@ mcp>=1.23.0
 python-dotenv
 urllib3>=2.6.3
 python-multipart>=0.0.22
+dedalus-labs

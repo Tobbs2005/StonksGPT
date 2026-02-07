@@ -1,12 +1,13 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertCircle } from 'lucide-react';
 
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  isError?: boolean;
 }
 
 interface MessageListProps {
@@ -37,9 +38,17 @@ export function MessageList({ messages, isLoading = false }: MessageListProps) {
                     'max-w-[80%] rounded-lg px-4 py-2 shadow-sm',
                     message.role === 'user'
                       ? 'bg-primary text-primary-foreground'
+                      : message.isError
+                      ? 'bg-destructive/10 border border-destructive/20 text-destructive'
                       : 'bg-muted text-foreground'
                   )}
                 >
+                  {message.isError && (
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertCircle className="h-4 w-4" />
+                      <span className="text-xs font-semibold">Error</span>
+                    </div>
+                  )}
                   <div className="whitespace-pre-wrap break-words text-sm">{message.content}</div>
                   <div className="text-xs mt-1 opacity-70">
                     {message.timestamp.toLocaleTimeString()}

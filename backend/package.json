@@ -17,6 +17,7 @@
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.20.0",
+    "@google/generative-ai": "^0.21.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "cors": "^2.8.5",
     "dedalus-labs": "^0.1.0-alpha.8",
