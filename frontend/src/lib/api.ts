@@ -124,6 +124,17 @@ export const chatApi = {
     }
     return response.data.data || [];
   },
+  // Get chart data directly
+  getChartData: async (symbol: string, timeframe?: string): Promise<any> => {
+    const response = await api.post<ApiResponse<any>>('/chart/data', {
+      symbol,
+      timeframe: timeframe || '1mo',
+    });
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to fetch chart data');
+    }
+    return response.data.data;
+  },
 };
 
 export default api;

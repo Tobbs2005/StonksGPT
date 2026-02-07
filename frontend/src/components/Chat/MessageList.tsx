@@ -1,6 +1,7 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { Loader2, AlertCircle } from 'lucide-react';
+import { StockChart, ChartData } from './StockChart';
 
 export interface Message {
   id: string;
@@ -8,14 +9,22 @@ export interface Message {
   content: string;
   timestamp: Date;
   isError?: boolean;
+  chartData?: ChartData;
 }
 
 interface MessageListProps {
   messages: Message[];
   isLoading?: boolean;
+  chartLoadingIds?: Set<string>;
+  onChartTimeframeChange?: (messageId: string, symbol: string, timeframe: string) => void;
 }
 
-export function MessageList({ messages, isLoading = false }: MessageListProps) {
+export function MessageList({
+  messages,
+  isLoading = false,
+  chartLoadingIds,
+  onChartTimeframeChange,
+}: MessageListProps) {
   return (
     <ScrollArea className="h-full p-4">
       <div className="space-y-4 min-h-full">
@@ -50,6 +59,21 @@ export function MessageList({ messages, isLoading = false }: MessageListProps) {
                     </div>
                   )}
                   <div className="whitespace-pre-wrap break-words text-sm">{message.content}</div>
+                  {message.chartData && (
+                    <div className="mt-4">
+                      <StockChart
+                        chartData={message.chartData}
+                        isLoading={chartLoadingIds?.has(message.id)}
+                        onTimeframeChange={(timeframe) => {
+                          onChartTimeframeChange?.(
+                            message.id,
+                            message.chartData?.metadata.symbol || '',
+                            timeframe
+                          );
+                        }}
+                      />
+                    </div>
+                  )}
                   <div className="text-xs mt-1 opacity-70">
                     {message.timestamp.toLocaleTimeString()}
                   </div>

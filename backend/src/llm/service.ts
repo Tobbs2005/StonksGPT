@@ -519,6 +519,12 @@ WEB SEARCH CAPABILITIES:
 - Extract ticker symbols from search results (they are typically 1-5 uppercase letters like "NEM", "GOLD", "AEM")
 - Look for patterns in search results: "NYSE: NEM", "ticker: GOLD", "$SYMBOL", or just standalone uppercase letters
 
+CHART CAPABILITIES:
+- Use get_chart_data(symbol, timeframe?) when users ask to see charts, graphs, or visualizations of stock data
+- Examples: "Show me GOOGL market data", "Display AAPL chart", "Graph MSFT stock"
+- The chart data will be automatically displayed in the frontend
+- Always include the chart data in your response when calling get_chart_data
+
 TRADING EXECUTION:
 - Use "notional" when user specifies dollar amount (e.g., "$67" → notional: 67)
 - Use "quantity" when user specifies number of shares (e.g., "10 shares" → quantity: 10)
@@ -714,6 +720,25 @@ Example: User says "buy google 100 shares" → First call get_asset("GOOGL") to 
             required: ['query'],
           },
         },
+        {
+          name: 'get_chart_data',
+          description: 'Fetch market data and generate chart data for a stock symbol. Use this when users ask to see charts, graphs, or visualizations of stock data (e.g., "Show me GOOGL market data", "Display AAPL chart").',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              symbol: {
+                type: 'string',
+                description: 'Stock ticker symbol (e.g., "AAPL", "GOOGL", "MSFT")',
+              },
+              timeframe: {
+                type: 'string',
+                description: 'Time period for the chart: "1d" (1 day), "5d" (5 days), "1mo" (1 month), "6mo" (6 months), "1y" (1 year), "5y" (5 years). Default: "1mo"',
+                enum: ['1d', '5d', '1mo', '6mo', '1y', '5y'],
+              },
+            },
+            required: ['symbol'],
+          },
+        },
       ];
       
       // Combine prioritized tools with web search tools
@@ -771,6 +796,7 @@ Example: User says "buy google 100 shares" → First call get_asset("GOOGL") to 
 
     let maxIterations = 50;
     let iteration = 0;
+    let lastChartPayload: string | null = null;
     const toolCallLog: Array<{ iteration: number; tool: string; parameters: any; timestamp: string }> = [];
 
     while (iteration < maxIterations) {
@@ -868,6 +894,42 @@ Example: User says "buy google 100 shares" → First call get_asset("GOOGL") to 
                   console.error('❌ Symbol search error:', symbolError);
                   result = `Symbol search error: ${symbolError.message}`;
                 }
+              } else if (toolName === 'get_chart_data') {
+                console.log(`📊 Calling get_chart_data for symbol: "${toolArgs.symbol || ''}"`);
+                try {
+                  // Call chart API endpoint
+                  const chartResponse = await fetch('http://localhost:3001/api/chart/data', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      symbol: toolArgs.symbol,
+                      timeframe: toolArgs.timeframe || '1mo',
+                    }),
+                  });
+
+                  if (!chartResponse.ok) {
+                    const errorData: any = await chartResponse.json();
+                    throw new Error(errorData.error || 'Failed to fetch chart data');
+                  }
+
+                  const chartDataResponse: any = await chartResponse.json();
+                  if (chartDataResponse.success && chartDataResponse.data) {
+                    // Return chart data as JSON string that frontend can parse
+                    result = JSON.stringify({
+                      type: 'chart',
+                      chartData: chartDataResponse.data,
+                    });
+                    lastChartPayload = result;
+                    console.log(`✅ Chart data fetched: ${chartDataResponse.data.chartType} chart with ${chartDataResponse.data.data.length} points`);
+                  } else {
+                    throw new Error('Invalid chart data response');
+                  }
+                } catch (chartError: any) {
+                  console.error('❌ Chart data error:', chartError);
+                  result = `Chart data error: ${chartError.message}`;
+                }
               } else {
                 // Call MCP tool for all other tools
                 result = await mcpClient.callTool({
@@ -904,8 +966,15 @@ Example: User says "buy google 100 shares" → First call get_asset("GOOGL") to 
         continue;
       }
 
+      const stripMarkdownImages = (content: string) =>
+        content
+          .replace(/!\[[^\]]*]\([^)]+\)/g, '')
+          .replace(/\[[^\]]*]\([^)]+\)/g, '')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+
       // No tool calls - this is the final response
-      const responseContent = message.content || 'No response generated';
+      let responseContent = stripMarkdownImages(message.content || 'No response generated');
       console.log(`✅ Final LLM response (${responseContent.length} chars):`, responseContent.substring(0, 200));
       const lowerContent = responseContent.toLowerCase();
       const refusedKeywords = ["don't have the ability", "cannot execute", "unable to", "i'm sorry", "i cannot", "i don't have", "as an ai"];
@@ -951,9 +1020,16 @@ Example: User says "buy google 100 shares" → First call get_asset("GOOGL") to 
       // If tools were called and we got a response (even with partial failures), return it
       // This handles cases where some orders succeed and others fail
       if (hasToolCalls && responseContent) {
+        if (lastChartPayload && !responseContent.includes('"type":"chart"')) {
+          responseContent = `${responseContent}\n\n${lastChartPayload}`;
+        }
         return responseContent;
       }
       
+      if (lastChartPayload && !responseContent.includes('"type":"chart"')) {
+        responseContent = `${responseContent}\n\n${lastChartPayload}`;
+      }
+
       return responseContent;
     }
 
