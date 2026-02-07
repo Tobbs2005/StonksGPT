@@ -67,6 +67,13 @@ export const ordersApi = {
     }
     return response.data.data || '';
   },
+  cancelOrder: async (orderId: string): Promise<string> => {
+    const response = await api.delete<ApiResponse<string>>(`/orders/${orderId}`);
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to cancel order');
+    }
+    return response.data.data || '';
+  },
   placeStockOrder: async (order: {
     symbol: string;
     side: string;

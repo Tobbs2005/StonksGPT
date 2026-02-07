@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { MessageList, Message } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { chatApi } from '@/lib/api';
@@ -30,35 +31,27 @@ export function ChatInterface() {
     setIsLoading(true);
 
     try {
-      // Send natural language message to LLM service (uses Dedalus Labs MCP)
-      // The LLM will automatically parse the message and call appropriate MCP tools
       const result = await chatApi.sendMessage(userMessage);
-      
-      // Parse result to extract chart data if present
+
       let chartData: any = undefined;
       let content = result;
-      
-      // Check if result contains chart data JSON
+
       try {
-        // Look for JSON objects in the result
         const jsonMatch = result.match(/\{[\s\S]*"type"\s*:\s*"chart"[\s\S]*\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
           if (parsed.type === 'chart' && parsed.chartData) {
             chartData = parsed.chartData;
-            // Remove the JSON from the content
             content = result.replace(jsonMatch[0], '').trim();
-            // If content is empty, provide a default message
             if (!content) {
               content = `Here's the market data chart for ${chartData.metadata.symbol}:`;
             }
           }
         }
       } catch (parseError) {
-        // If parsing fails, just use the result as-is
         console.log('No chart data found in response');
       }
-      
+
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -69,17 +62,14 @@ export function ChatInterface() {
 
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (error: any) {
-      // Extract detailed error information
       let errorContent = '';
       let suggestions: string[] = [];
-      
+
       if (error.response?.data) {
-        // API error response
         const errorData = error.response.data;
         errorContent = errorData.error || 'Failed to process request';
         suggestions = errorData.suggestions || [];
       } else if (error.request) {
-        // Network error
         errorContent = 'Unable to connect to the server. Please check your connection.';
         suggestions = [
           'Check your internet connection',
@@ -87,26 +77,22 @@ export function ChatInterface() {
           'Try again in a moment',
         ];
       } else {
-        // Other error
         errorContent = error.message || 'An unexpected error occurred';
       }
-      
-      // Format error message with suggestions
+
       let formattedError = `**Error**: ${errorContent}`;
-      
+
       if (suggestions.length > 0) {
         formattedError += '\n\n**Suggestions:**\n';
         suggestions.forEach((suggestion, index) => {
           formattedError += `${index + 1}. ${suggestion}\n`;
         });
       }
-      
-      // Add details in development mode (check if details exist)
+
       if (error.response?.data?.details) {
-        // Only show details if we're likely in dev mode (no production check needed)
         formattedError += `\n\n_Details: ${error.response.data.details}_`;
       }
-      
+
       const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -164,9 +150,16 @@ export function ChatInterface() {
   };
 
   return (
-    <Card className="flex flex-col h-full">
-      <CardContent className="flex-1 flex flex-col p-0 min-h-0">
-        <div className="flex-1 overflow-hidden min-h-0">
+    <Card className="h-full w-full flex flex-col border-border/60 bg-card/95 rounded-2xl shadow-lg overflow-hidden">
+      <CardHeader className="border-b border-border/40 px-6 py-4 shrink-0">
+        <div>
+          <CardTitle className="text-lg">StonksGPT</CardTitle>
+          <p className="text-sm text-muted-foreground">Real-time trading assistant</p>
+        </div>
+      </CardHeader>
+
+      <CardContent className="flex-1 flex flex-col p-0 min-h-0 overflow-hidden">
+        <ScrollArea className="flex-1 w-full">
           <MessageList
             messages={messages}
             isLoading={isLoading}
@@ -174,9 +167,12 @@ export function ChatInterface() {
             onChartTimeframeChange={handleChartTimeframeChange}
           />
           <div ref={messagesEndRef} />
-        </div>
-        <MessageInput onSend={handleSend} disabled={isLoading} />
+        </ScrollArea>
       </CardContent>
+
+      <div className="border-t border-border/40 bg-muted/20 shrink-0">
+        <MessageInput onSend={handleSend} disabled={isLoading} />
+      </div>
     </Card>
   );
 }
