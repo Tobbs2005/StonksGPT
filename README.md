@@ -66,4 +66,67 @@ The system is designed with a clear separation between AI tooling, backend logic
 ---
 
 ## Project Structure
+TradeBot/
+├── alpaca-mcp-server/ # Python MCP server
+├── backend/ # Express.js REST API
+│ └── src/
+│ ├── mcp/ # MCP client and tool wrappers
+│ └── routes/ # API route handlers
+└── frontend/ # React application
+└── src/
+├── components/ # UI components
+└── lib/ # API and utility clients
+
+
+---
+
+## Getting Started
+
+### Prerequisites
+- Node.js 18+
+- Python 3.10+
+- uv installed for Python environment management
+- Alpaca API credentials (paper trading)
+
+### Setup
+
+1. Initialize the Alpaca MCP server:
+```bash
+cd alpaca-mcp-server
+uvx alpaca-mcp-server init
+```
+
+2. Start the backend:
+```bash
+cd backend
+npm install
+export ALPACA_API_KEY="your_api_key"
+export ALPACA_SECRET_KEY="your_secret_key"
+npm run dev
+```
+
+3. Start the frontend:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open the application:
+
+Frontend: http://localhost:3000
+
+Backend API: http://localhost:3001
+
+Notes
+
+The application uses paper trading by default
+
+AI-generated actions are validated before execution
+
+The architecture is designed to be extensible for additional agents and analytics
+
+License
+
+MIT
 
