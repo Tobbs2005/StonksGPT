@@ -25,6 +25,11 @@ export interface LLMToolCall {
   arguments: Record<string, any>;
 }
 
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 /**
  * LLM Service that handles natural language interpretation and tool calling
  */
@@ -208,7 +213,7 @@ export class LLMService {
   /**
    * Process a user message and return a response, potentially calling MCP tools
    */
-  async processMessage(userMessage: string): Promise<string> {
+  async processMessage(userMessage: string, history?: ChatHistoryMessage[]): Promise<string> {
     this.ensureConfigInitialized();
     
     if (!this.config || !this.isAvailable()) {
@@ -270,13 +275,20 @@ TRADING EXECUTION:
 - Always verify symbols with get_asset() before placing orders
 - Execute ALL requested trades - do not stop after finding some symbols`;
     
-    return await this.processWithDedalus(userMessage, systemPrompt, mcpClient);
+    const sanitizedHistory = Array.isArray(history)
+      ? history
+          .filter((item) => item && typeof item.content === 'string' && (item.role === 'user' || item.role === 'assistant'))
+          .slice(-3)
+      : [];
+
+    return await this.processWithDedalus(userMessage, systemPrompt, mcpClient, sanitizedHistory);
   }
 
   private async processWithDedalus(
     userMessage: string,
     systemPrompt: string,
-    mcpClient: any
+    mcpClient: any,
+    history: ChatHistoryMessage[] = []
   ): Promise<string> {
     // Try SDK first, then fall back to REST API
     let useSDK = false;
@@ -330,8 +342,13 @@ TRADING EXECUTION:
         // Add web search servers to MCP servers list
         mcpServers.push(...webSearchServers);
 
+        const historyText = history.length
+          ? `RECENT CONTEXT:\n${history
+              .map((item) => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.content}`)
+              .join('\n')}\n\n`
+          : '';
         const response = await runner.run({
-          input: userMessage,
+          input: `${historyText}${userMessage}`,
           model: [this.config!.model],
           mcp_servers: mcpServers,
           // Don't pass tools - let Dedalus discover them from MCP servers automatically
@@ -516,7 +533,7 @@ TRADING EXECUTION:
         parameters: tool.inputSchema || { type: 'object', properties: {} },
       }));
       
-      return await this.processWithDedalusREST(userMessage, systemPrompt, functions, mcpClient);
+      return await this.processWithDedalusREST(userMessage, systemPrompt, functions, mcpClient, history);
     }
 
     throw new Error('Unexpected error in Dedalus processing');
@@ -526,7 +543,8 @@ TRADING EXECUTION:
     userMessage: string,
     systemPrompt: string,
     functions: any[],
-    mcpClient: any
+    mcpClient: any,
+    history: ChatHistoryMessage[] = []
   ): Promise<string> {
     // Use Dedalus Labs OpenAI-compatible REST API
     const apiKey = this.config!.apiKey;
@@ -544,8 +562,13 @@ TRADING EXECUTION:
 
     const messages: any[] = [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: userMessage },
     ];
+    if (history.length > 0) {
+      history.forEach((item) => {
+        messages.push({ role: item.role, content: item.content });
+      });
+    }
+    messages.push({ role: 'user', content: userMessage });
 
     type NotionalOrder = { symbol: string; notional: number };
     let maxIterations = 50;

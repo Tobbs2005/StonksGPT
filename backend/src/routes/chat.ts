@@ -95,7 +95,7 @@ router.post('/llm', async (req: Request, res: Response) => {
   }, 110000); // 110 seconds
 
   try {
-    const { message } = req.body;
+    const { message, history } = req.body;
 
     if (!message || typeof message !== 'string') {
       clearTimeout(timeout);
@@ -104,6 +104,14 @@ router.post('/llm', async (req: Request, res: Response) => {
         error: 'message is required and must be a string',
       });
     }
+
+    const sanitizedHistory = Array.isArray(history)
+      ? history.filter((item: any) =>
+          item &&
+          (item.role === 'user' || item.role === 'assistant') &&
+          typeof item.content === 'string'
+        )
+      : undefined;
 
     const llmService = getLLMService();
     
@@ -116,7 +124,7 @@ router.post('/llm', async (req: Request, res: Response) => {
     }
 
     // Wrap LLM processing in a timeout promise
-    const processPromise = llmService.processMessage(message);
+    const processPromise = llmService.processMessage(message, sanitizedHistory);
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('LLM processing timeout after 110 seconds')), 110000);
     });

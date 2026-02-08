@@ -92,11 +92,17 @@ export const ordersApi = {
   },
 };
 
+export type ChatHistoryMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
 export const chatApi = {
   // Send natural language message to LLM service (uses Dedalus Labs MCP)
-  sendMessage: async (message: string): Promise<string> => {
+  sendMessage: async (message: string, history?: ChatHistoryMessage[]): Promise<string> => {
     const response = await api.post<ApiResponse<string>>('/chat/llm', {
       message,
+      history,
     });
     if (!response.data.success) {
       throw new Error(response.data.error || 'Failed to send message');
