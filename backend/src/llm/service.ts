@@ -571,6 +571,58 @@ TRADING EXECUTION:
         .filter(Boolean);
     };
 
+    const SYMBOL_KEYWORDS: Record<string, string[]> = {
+      AAPL: ['aapl', 'apple', 'apple inc'],
+      MSFT: ['msft', 'microsoft'],
+      GOOGL: ['googl', 'google', 'alphabet'],
+      GOOG: ['goog', 'google', 'alphabet'],
+      AMZN: ['amzn', 'amazon'],
+      TSLA: ['tsla', 'tesla'],
+      META: ['meta', 'facebook'],
+      NVDA: ['nvda', 'nvidia'],
+      JPM: ['jpm', 'jpmorgan', 'j.p. morgan'],
+      V: ['visa'],
+      JNJ: ['jnj', 'johnson & johnson', 'johnson and johnson'],
+      XOM: ['xom', 'exxon'],
+      WMT: ['wmt', 'walmart'],
+      PG: ['pg', 'procter & gamble', 'procter and gamble'],
+      UNH: ['unh', 'united health'],
+      HD: ['hd', 'home depot'],
+      CVX: ['cvx', 'chevron'],
+      MA: ['mastercard'],
+      DIS: ['dis', 'disney', 'walt disney'],
+      NFLX: ['nflx', 'netflix'],
+      AMD: ['amd', 'advanced micro'],
+      INTC: ['intc', 'intel'],
+      CRM: ['crm', 'salesforce'],
+      ADBE: ['adbe', 'adobe'],
+      PYPL: ['pypl', 'paypal'],
+      U: ['unity software', 'unity technologies'],
+    };
+
+    const getKeywordsForSymbol = (symbol: string): string[] => {
+      const s = symbol.toUpperCase();
+      const keywords = SYMBOL_KEYWORDS[s] || [s.toLowerCase()];
+      return [...new Set([s.toLowerCase(), ...keywords])];
+    };
+
+    const articleMentionsSymbol = (article: any, targetSymbols: string[]): boolean => {
+      const text = `${article?.title || ''} ${article?.summary || ''}`.toLowerCase();
+      if (!text.trim()) return false;
+      for (const sym of targetSymbols) {
+        const keywords = getKeywordsForSymbol(sym);
+        for (const kw of keywords) {
+          if (kw.length >= 2 && new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text)) {
+            return true;
+          }
+          if (kw.length === 1 && text.includes(kw)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
     const filterNewsBySymbols = (newsData: any, symbols: string[]) => {
       const targetSymbols = normalizeSymbols(symbols);
       if (!newsData || !Array.isArray(newsData.articles)) {
@@ -580,11 +632,9 @@ TRADING EXECUTION:
         return newsData;
       }
       const filteredArticles = newsData.articles.filter((article: any) => {
-        const articleSymbols = normalizeSymbols(article?.symbols);
-        if (articleSymbols.length === 0) {
-          return false;
-        }
-        return articleSymbols.some((symbol) => targetSymbols.includes(symbol));
+        const entityMatch = normalizeSymbols(article?.symbols).some((s: string) => targetSymbols.includes(s));
+        if (entityMatch) return true;
+        return articleMentionsSymbol(article, targetSymbols);
       });
       return {
         ...newsData,
@@ -766,11 +816,12 @@ TRADING EXECUTION:
               } else if (toolName === 'get_news') {
                 console.log(`📰 Calling get_news with args:`, JSON.stringify(toolArgs));
                 try {
+                  const newsSymbols = normalizeSymbols(toolArgs?.symbols);
                   let newsData: any = await fetchMarketAuxNews({
-                    symbols: toolArgs.symbols,
-                    start: toolArgs.start,
-                    end: toolArgs.end,
-                    limit: 3,
+                    symbols: newsSymbols.length > 0 ? newsSymbols : undefined,
+                    start: toolArgs?.start,
+                    end: toolArgs?.end,
+                    limit: 20,
                   });
                   if (newsData?.error) {
                     result = `News error: ${newsData.error}`;

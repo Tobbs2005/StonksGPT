@@ -5,109 +5,53 @@ import { fetchMarketAuxNews } from '../services/marketaux';
 
 const router = Router();
 
-// Get news articles
-const mergeNewsArticles = (primary: any, secondary: any) => {
-  const seen = new Set<string>();
-  const merged = [];
-  for (const article of [...(primary || []), ...(secondary || [])]) {
-    const key = article?.url || article?.title;
-    if (!key || seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    merged.push(article);
-  }
-  return merged;
-};
-
-const getCombinedNews = async ({
+/**
+ * Fetch news exclusively from MarketAux.
+ * The legacy MCP get_news fallback has been removed so all
+ * articles come from a single, consistent source.
+ */
+const getMarketAuxNewsDirect = async ({
   symbols,
   start,
   end,
   limit,
-  source,
-  mcpClient,
 }: {
   symbols: string[];
   start?: string;
   end?: string;
   limit?: number;
-  source?: string;
-  mcpClient: any;
 }) => {
-  const totalLimit = limit && limit > 0 ? limit : 10;
-  const marketauxLimit = source === 'marketaux' ? Math.min(3, totalLimit) : Math.min(3, totalLimit);
-  const oldLimit = source === 'marketaux' ? 0 : Math.max(0, totalLimit - marketauxLimit);
-
-  const marketauxData = marketauxLimit > 0
-    ? await fetchMarketAuxNews({ symbols, start, end, limit: marketauxLimit })
-    : { articles: [], count: 0, start_date: start || '', end_date: end || '', symbols };
-
-  let legacyData = { articles: [], count: 0, start_date: start || '', end_date: end || '', symbols };
-  if (oldLimit > 0) {
-    const args: any = { symbols, limit: oldLimit };
-    if (start) args.start = start;
-    if (end) args.end = end;
-    const result = await mcpClient.callTool({
-      name: 'get_news',
-      arguments: args,
-    });
-    legacyData = JSON.parse(result);
-  }
-
-  const mergedArticles = mergeNewsArticles(marketauxData.articles, legacyData.articles)
-    .sort((a: any, b: any) => String(b?.published_date || '').localeCompare(String(a?.published_date || '')))
-    .slice(0, totalLimit);
+  const totalLimit = limit && limit > 0 ? limit : 50;
+  const data = await fetchMarketAuxNews({ symbols, start, end, limit: totalLimit });
 
   return {
-    articles: mergedArticles,
-    count: mergedArticles.length,
-    start_date: marketauxData.start_date || legacyData.start_date || start || '',
-    end_date: marketauxData.end_date || legacyData.end_date || end || '',
+    articles: data.articles,
+    count: data.articles.length,
+    start_date: data.start_date || start || '',
+    end_date: data.end_date || end || '',
     symbols,
+    error: data.error,
   };
 };
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { symbols, start, end, limit, source } = req.query;
-    
-    const mcpClient = getMCPClient();
-    await mcpClient.initialize();
-    
-    const args: any = {};
-    if (symbols) {
-      // Parse comma-separated symbols
-      const symbolList = typeof symbols === 'string' 
-        ? symbols.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
-        : [];
-      if (symbolList.length > 0) {
-        args.symbols = symbolList;
-      }
-    }
-    if (start && typeof start === 'string') {
-      args.start = start;
-    }
-    if (end && typeof end === 'string') {
-      args.end = end;
-    }
-    if (limit) {
-      const limitNum = parseInt(limit as string, 10);
-      if (!isNaN(limitNum)) {
-        args.limit = limitNum;
-      }
-    }
-    
+    const { symbols, start, end, limit } = req.query;
+
+    const symbolList = typeof symbols === 'string'
+      ? symbols.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+      : [];
+
     const limitNum = typeof limit === 'string' ? parseInt(limit, 10) : undefined;
-    const combined = await getCombinedNews({
-      symbols: args.symbols || [],
+
+    const data = await getMarketAuxNewsDirect({
+      symbols: symbolList,
       start: typeof start === 'string' ? start : undefined,
       end: typeof end === 'string' ? end : undefined,
       limit: limitNum,
-      source: typeof source === 'string' ? source : undefined,
-      mcpClient,
     });
-    res.json({ success: true, data: combined });
+
+    res.json({ success: true, data });
   } catch (error: any) {
     console.error('Error fetching news:', error);
     res.status(500).json({
@@ -157,17 +101,15 @@ router.get('/portfolio', async (req: Request, res: Response) => {
       });
     }
     
-    const { start, end, limit, source } = req.query;
+    const { start, end, limit } = req.query;
     const limitNum = typeof limit === 'string' ? parseInt(limit, 10) : undefined;
-    const combined = await getCombinedNews({
+    const data = await getMarketAuxNewsDirect({
       symbols: allSymbols,
       start: typeof start === 'string' ? start : undefined,
       end: typeof end === 'string' ? end : undefined,
       limit: limitNum,
-      source: typeof source === 'string' ? source : undefined,
-      mcpClient,
     });
-    res.json({ success: true, data: combined });
+    res.json({ success: true, data });
   } catch (error: any) {
     console.error('[news/portfolio] Error fetching portfolio news:', error);
     res.status(500).json({
@@ -262,17 +204,15 @@ router.get('/watchlist', async (req: Request, res: Response) => {
       });
     }
     
-    const { start, end, limit, source } = req.query;
+    const { start, end, limit } = req.query;
     const limitNum = typeof limit === 'string' ? parseInt(limit, 10) : undefined;
-    const combined = await getCombinedNews({
+    const data = await getMarketAuxNewsDirect({
       symbols: allSymbols,
       start: typeof start === 'string' ? start : undefined,
       end: typeof end === 'string' ? end : undefined,
       limit: limitNum,
-      source: typeof source === 'string' ? source : undefined,
-      mcpClient,
     });
-    res.json({ success: true, data: combined });
+    res.json({ success: true, data });
   } catch (error: any) {
     console.error('[news/watchlist] Error fetching watchlist news:', error);
     res.status(500).json({

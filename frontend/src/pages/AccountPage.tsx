@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { accountApi, positionsApi, portfolioApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { Search, Bell, ChevronRight } from 'lucide-react';
+import { Search, Bell, ChevronRight, Briefcase } from 'lucide-react';
 
 type PrimaryTab = 'assets' | 'orders' | 'history';
 type InternalView = 'assets-analysis' | 'pl-analysis';
@@ -158,13 +158,13 @@ export function AccountPage() {
       <div className="max-w-7xl mx-auto w-full">
         {/* ── Header ─────────────────────────────────────────── */}
         <div className="flex items-center justify-between mb-1">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Accounts</h2>
-            <div className="flex items-center gap-2 mt-1">
-              <div className="h-5 w-5 rounded bg-muted flex items-center justify-center">
-                <div className="h-2.5 w-2.5 rounded-sm bg-primary" />
-              </div>
-              <span className="text-sm text-muted-foreground">Paper Trading Account</span>
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 border border-emerald-500/10 flex items-center justify-center">
+              <Briefcase className="h-5 w-5 text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Accounts</h2>
+              <p className="text-xs text-muted-foreground">Paper Trading Account</p>
             </div>
           </div>
           <div className="flex items-center gap-2">

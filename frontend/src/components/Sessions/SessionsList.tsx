@@ -10,7 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { MessageSquare, Trash2 } from 'lucide-react';
+import { MessageSquare, Trash2, CalendarDays } from 'lucide-react';
 
 interface SessionsListProps {
   onStartSession: (session: TradingSession) => void;
@@ -58,9 +58,14 @@ export function SessionsList({ onStartSession }: SessionsListProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold">Trading Sessions</h3>
-          <p className="text-sm text-muted-foreground">Create multiple sessions per day.</p>
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/10 flex items-center justify-center">
+            <CalendarDays className="h-5 w-5 text-amber-400" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold">Trading Sessions</h3>
+            <p className="text-xs text-muted-foreground">Create multiple sessions per day.</p>
+          </div>
         </div>
         <Button onClick={handleOpenModal}>Start New Trading Session</Button>
       </div>
