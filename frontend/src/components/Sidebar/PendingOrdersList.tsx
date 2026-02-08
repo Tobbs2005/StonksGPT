@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ordersApi } from '@/lib/api';
+import { ordersApi, positionsApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,14 +19,20 @@ interface ParsedOrder {
   status?: string;
   time_in_force?: string;
   limit_price?: string;
+  filled_price?: string;
+  stop_price?: string;
   [key: string]: string | undefined;
 }
 
 function parseOrders(text: string): ParsedOrder[] {
-  if (!text || text.toLowerCase().includes('no open orders')) return [];
+  if (!text || typeof text !== 'string') return [];
+  const lower = text.toLowerCase();
+  if (lower.includes('no open orders') || lower.includes('no orders found')) return [];
+
   const orders: ParsedOrder[] = [];
   let current: Record<string, string> | null = null;
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+
   for (const line of lines) {
     const sym = line.match(/^Symbol:\s*(.+)$/i);
     if (sym) {
@@ -37,10 +43,26 @@ function parseOrders(text: string): ParsedOrder[] {
     if (!current) continue;
     const field = line.match(/^(.*?):\s*(.+)$/);
     if (!field) continue;
-    current[field[1].trim().toLowerCase().replace(/\s+/g, '_')] = field[2].trim();
+    const key = field[1].trim().toLowerCase().replace(/\s+/g, '_');
+    const value = field[2].trim();
+    current[key] = value;
+    if (key === 'quantity' && !current.qty) current.qty = value.replace(/\s*shares?$/i, '').trim();
   }
   if (current?.symbol) orders.push(current as ParsedOrder);
   return orders;
+}
+
+/**
+ * Get the best available price from the ORDER itself.
+ * Returns undefined for market orders (they have no price field from Alpaca).
+ */
+function getOrderPrice(order: ParsedOrder): string | undefined {
+  return order.limit_price ?? order.filled_price ?? order.stop_price;
+}
+
+/** Check if this is a market-type order */
+function isMarketOrder(order: ParsedOrder): boolean {
+  return order.type?.toLowerCase() === 'market';
 }
 
 /* ── helpers ──────────────────────────────────────────────── */
@@ -62,6 +84,61 @@ function tifLabel(value?: string): string {
 
 const QUERY_KEY = ['orders', 'open'] as const;
 
+/* ── Position data: avg entry price + current price per symbol ── */
+
+interface PositionPrices {
+  avg_entry_price?: string;
+  current_price?: string;
+}
+
+/**
+ * Parse positions text into symbol → { avg_entry_price, current_price } map.
+ * The Alpaca MCP `get_all_positions` returns indented text like:
+ *   Symbol: AAPL
+ *   Quantity: 1 shares
+ *   Market Value: $278.12
+ *   Average Entry Price: $273.00
+ *   Current Price: $278.12
+ *   Unrealized P/L: $5.12 (1.88%)
+ */
+function parsePositionPrices(text: string): Map<string, PositionPrices> {
+  const map = new Map<string, PositionPrices>();
+  if (!text || typeof text !== 'string' || text.includes('No open positions')) return map;
+
+  let currentSymbol: string | null = null;
+  let currentPrices: PositionPrices = {};
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  for (const line of lines) {
+    const sym = line.match(/^Symbol:\s*(.+)$/i);
+    if (sym) {
+      // Save previous
+      if (currentSymbol && (currentPrices.avg_entry_price || currentPrices.current_price)) {
+        map.set(currentSymbol, currentPrices);
+      }
+      currentSymbol = sym[1].trim();
+      currentPrices = {};
+      continue;
+    }
+    if (!currentSymbol) continue;
+
+    const avgMatch = line.match(/^Average Entry Price:\s*(.+)$/i);
+    if (avgMatch) {
+      currentPrices.avg_entry_price = avgMatch[1].trim();
+      continue;
+    }
+    const curMatch = line.match(/^Current Price:\s*(.+)$/i);
+    if (curMatch) {
+      currentPrices.current_price = curMatch[1].trim();
+    }
+  }
+  // Save last
+  if (currentSymbol && (currentPrices.avg_entry_price || currentPrices.current_price)) {
+    map.set(currentSymbol, currentPrices);
+  }
+  return map;
+}
+
 /* ── component ────────────────────────────────────────────── */
 
 export function PendingOrdersList() {
@@ -78,11 +155,19 @@ export function PendingOrdersList() {
     refetchInterval: 30000,
   });
 
-  const orders = data ? parseOrders(data) : [];
+  const { data: positionsData } = useQuery({
+    queryKey: ['positions'],
+    queryFn: () => positionsApi.getAllPositions(),
+    refetchInterval: 30000,
+  });
+
+  const orders = data && typeof data === 'string' ? parseOrders(data) : [];
+  const positionsBySymbol = useMemo(
+    () => (positionsData && typeof positionsData === 'string' ? parsePositionPrices(positionsData) : new Map<string, PositionPrices>()),
+    [positionsData],
+  );
 
   // Clean up cancelingIds once the backend confirms orders are gone.
-  // When a refetch no longer includes a canceled order ID, we can
-  // safely drop it from cancelingIds.
   useEffect(() => {
     if (cancelingIds.size === 0) return;
     const currentIds = new Set(orders.map((o) => o.id).filter(Boolean));
@@ -101,7 +186,6 @@ export function PendingOrdersList() {
   const handleCancel = async (orderId?: string) => {
     if (!orderId) return;
 
-    // Clear any previous error for this order
     setErrorIds((prev) => {
       if (!prev.has(orderId)) return prev;
       const next = new Set(prev);
@@ -109,26 +193,19 @@ export function PendingOrdersList() {
       return next;
     });
 
-    // Mark as canceling — row hides immediately
     setCancelingIds((prev) => new Set(prev).add(orderId));
 
     try {
       await ordersApi.cancelOrder(orderId);
-      // Refetch the list. The order may still appear briefly due to
-      // backend propagation delay, but cancelingIds keeps it hidden
-      // until the cleanup effect removes the stale ID.
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     } catch (err) {
       console.error('Failed to cancel order', err);
-      // Rollback: un-hide the row so user can retry
       setCancelingIds((prev) => {
         const next = new Set(prev);
         next.delete(orderId);
         return next;
       });
-      // Surface error inline on that row
       setErrorIds((prev) => new Set(prev).add(orderId));
-      // Auto-clear error after 4 seconds
       setTimeout(() => {
         setErrorIds((prev) => {
           const next = new Set(prev);
@@ -145,7 +222,6 @@ export function PendingOrdersList() {
 
     setCancelingAll(true);
     setCancelAllError(false);
-    // Mark every order as canceling — all rows hide immediately
     setCancelingIds(new Set(ids));
 
     try {
@@ -156,13 +232,11 @@ export function PendingOrdersList() {
         setCancelAllError(true);
         setTimeout(() => setCancelAllError(false), 4000);
       }
-      // Refetch; cancelingIds keeps rows hidden through propagation delay
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     } catch (err) {
       console.error('Failed to cancel all orders', err);
       setCancelAllError(true);
       setTimeout(() => setCancelAllError(false), 4000);
-      // Rollback: un-hide all rows
       setCancelingIds(new Set());
     } finally {
       setCancelingAll(false);
@@ -180,7 +254,6 @@ export function PendingOrdersList() {
     return <p className="text-sm text-destructive py-2">Error loading orders</p>;
   }
 
-  // Filter out orders currently being canceled so they disappear immediately
   const visibleOrders = orders.filter((o) => !o.id || !cancelingIds.has(o.id));
 
   if (visibleOrders.length === 0 && cancelingIds.size === 0) {
@@ -194,7 +267,6 @@ export function PendingOrdersList() {
     );
   }
 
-  // Show a slim "cancelling" placeholder when all orders have been hidden but cancel is in-flight
   if (visibleOrders.length === 0 && cancelingIds.size > 0) {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
@@ -271,6 +343,18 @@ export function PendingOrdersList() {
         {visibleOrders.map((order, idx) => {
           const isBuy = order.side?.toLowerCase() === 'buy';
           const hasError = order.id ? errorIds.has(order.id) : false;
+          const orderPrice = getOrderPrice(order);
+          const isMarket = isMarketOrder(order);
+          const posInfo = positionsBySymbol.get(order.symbol);
+
+          // Determine the price to display:
+          // - Limit/stop orders → exact price from order
+          // - Market orders → current market price from position data (approximate)
+          const displayPrice = orderPrice
+            ? orderPrice
+            : isMarket && posInfo?.current_price
+              ? `~${posInfo.current_price}`
+              : undefined;
 
           return (
             <div key={`${order.symbol}-${order.id || idx}`}>
@@ -309,9 +393,15 @@ export function PendingOrdersList() {
                       {typeLabel(order.type)}
                     </span>
                   )}
-                  {order.limit_price && (
+                  {displayPrice && (
                     <span className="inline-flex items-center rounded bg-muted/60 px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">
-                      @ {order.limit_price}
+                      @ {displayPrice}
+                    </span>
+                  )}
+                  {/* Cost basis from existing position */}
+                  {posInfo?.avg_entry_price && (
+                    <span className="inline-flex items-center rounded bg-primary/10 px-1.5 py-0.5 text-[11px] tabular-nums text-primary font-medium">
+                      {isBuy ? 'Avg cost' : 'Buy in'}: {posInfo.avg_entry_price}
                     </span>
                   )}
                   {order.time_in_force && (
