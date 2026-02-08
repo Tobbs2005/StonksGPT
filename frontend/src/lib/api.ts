@@ -215,6 +215,29 @@ export const newsApi = {
     }
     return response.data.data || { articles: [], count: 0, start_date: '', end_date: '', symbols: [] };
   },
+
+  getPortfolioNews: async (params?: {
+    start?: string;
+    end?: string;
+    limit?: number;
+  }): Promise<NewsResponse> => {
+    const queryParams: Record<string, string> = {};
+    if (params?.start) {
+      queryParams.start = params.start;
+    }
+    if (params?.end) {
+      queryParams.end = params.end;
+    }
+    if (params?.limit) {
+      queryParams.limit = params.limit.toString();
+    }
+    
+    const response = await api.get<ApiResponse<NewsResponse>>('/news/portfolio', { params: queryParams });
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to fetch portfolio news');
+    }
+    return response.data.data || { articles: [], count: 0, start_date: '', end_date: '', symbols: [] };
+  },
   
   syncWatchlist: async (): Promise<{ success: boolean; symbolsAdded: string[]; totalSymbols: number; error?: string }> => {
     const response = await api.post<ApiResponse<{ success: boolean; symbolsAdded: string[]; totalSymbols: number; error?: string }>>('/news/sync-watchlist');

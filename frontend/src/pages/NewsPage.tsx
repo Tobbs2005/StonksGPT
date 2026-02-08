@@ -52,7 +52,10 @@ export function NewsPage() {
         });
       }
     },
+    staleTime: 300000, // Cache for 5 minutes to reduce repeated calls
+    cacheTime: 600000,
     refetchInterval: 300000, // Auto-refresh every 5 minutes
+    refetchOnWindowFocus: false,
   });
 
   // Extract available symbols from news data for autocomplete

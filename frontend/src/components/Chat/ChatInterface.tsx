@@ -34,22 +34,46 @@ export function ChatInterface() {
       const result = await chatApi.sendMessage(userMessage);
 
       let chartData: any = undefined;
+      let newsData: any = undefined;
       let content = result;
 
-      try {
-        const jsonMatch = result.match(/\{[\s\S]*"type"\s*:\s*"chart"[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.type === 'chart' && parsed.chartData) {
-            chartData = parsed.chartData;
-            content = result.replace(jsonMatch[0], '').trim();
-            if (!content) {
-              content = `Here's the market data chart for ${chartData.metadata.symbol}:`;
-            }
-          }
+      const extractPayload = (type: 'chart' | 'news') => {
+        const marker = `{"type":"${type}"`;
+        const idx = content.lastIndexOf(marker);
+        if (idx === -1) {
+          return null;
         }
-      } catch (parseError) {
-        console.log('No chart data found in response');
+        const payloadText = content.slice(idx).trim();
+        try {
+          const parsed = JSON.parse(payloadText);
+          if (parsed?.type === type) {
+            content = content.slice(0, idx).trim();
+            return parsed;
+          }
+        } catch (parseError) {
+          return null;
+        }
+        return null;
+      };
+
+      const chartPayload = extractPayload('chart');
+      if (chartPayload?.chartData) {
+        chartData = chartPayload.chartData;
+      }
+
+      const newsPayload = extractPayload('news');
+      if (newsPayload?.newsData) {
+        newsData = newsPayload.newsData;
+      }
+
+      if (!content) {
+        if (chartData?.metadata?.symbol) {
+          content = `Here's the market data chart for ${chartData.metadata.symbol}:`;
+        } else if (newsData?.symbols?.length) {
+          content = `Here are the latest headlines for ${newsData.symbols.join(', ')}:`;
+        } else if (newsData) {
+          content = 'Here are the latest headlines:';
+        }
       }
 
       const assistantMsg: Message = {
@@ -58,6 +82,7 @@ export function ChatInterface() {
         content: content,
         timestamp: new Date(),
         ...(chartData && { chartData }),
+        ...(newsData && { newsData }),
       };
 
       setMessages((prev) => [...prev, assistantMsg]);

@@ -1,13 +1,76 @@
 import { Router, Request, Response } from 'express';
 import { getMCPClient } from '../mcp/client';
 import { syncPortfolioToWatchlist } from '../services/watchlist-sync';
+import { fetchMarketAuxNews } from '../services/marketaux';
 
 const router = Router();
 
 // Get news articles
+const mergeNewsArticles = (primary: any, secondary: any) => {
+  const seen = new Set<string>();
+  const merged = [];
+  for (const article of [...(primary || []), ...(secondary || [])]) {
+    const key = article?.url || article?.title;
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    merged.push(article);
+  }
+  return merged;
+};
+
+const getCombinedNews = async ({
+  symbols,
+  start,
+  end,
+  limit,
+  source,
+  mcpClient,
+}: {
+  symbols: string[];
+  start?: string;
+  end?: string;
+  limit?: number;
+  source?: string;
+  mcpClient: any;
+}) => {
+  const totalLimit = limit && limit > 0 ? limit : 10;
+  const marketauxLimit = source === 'marketaux' ? Math.min(3, totalLimit) : Math.min(3, totalLimit);
+  const oldLimit = source === 'marketaux' ? 0 : Math.max(0, totalLimit - marketauxLimit);
+
+  const marketauxData = marketauxLimit > 0
+    ? await fetchMarketAuxNews({ symbols, start, end, limit: marketauxLimit })
+    : { articles: [], count: 0, start_date: start || '', end_date: end || '', symbols };
+
+  let legacyData = { articles: [], count: 0, start_date: start || '', end_date: end || '', symbols };
+  if (oldLimit > 0) {
+    const args: any = { symbols, limit: oldLimit };
+    if (start) args.start = start;
+    if (end) args.end = end;
+    const result = await mcpClient.callTool({
+      name: 'get_news',
+      arguments: args,
+    });
+    legacyData = JSON.parse(result);
+  }
+
+  const mergedArticles = mergeNewsArticles(marketauxData.articles, legacyData.articles)
+    .sort((a: any, b: any) => String(b?.published_date || '').localeCompare(String(a?.published_date || '')))
+    .slice(0, totalLimit);
+
+  return {
+    articles: mergedArticles,
+    count: mergedArticles.length,
+    start_date: marketauxData.start_date || legacyData.start_date || start || '',
+    end_date: marketauxData.end_date || legacyData.end_date || end || '',
+    symbols,
+  };
+};
+
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { symbols, start, end, limit } = req.query;
+    const { symbols, start, end, limit, source } = req.query;
     
     const mcpClient = getMCPClient();
     await mcpClient.initialize();
@@ -35,46 +98,16 @@ router.get('/', async (req: Request, res: Response) => {
       }
     }
     
-    console.log(`[news] Fetching news with args:`, JSON.stringify(args));
-    const result = await mcpClient.callTool({
-      name: 'get_news',
-      arguments: args,
+    const limitNum = typeof limit === 'string' ? parseInt(limit, 10) : undefined;
+    const combined = await getCombinedNews({
+      symbols: args.symbols || [],
+      start: typeof start === 'string' ? start : undefined,
+      end: typeof end === 'string' ? end : undefined,
+      limit: limitNum,
+      source: typeof source === 'string' ? source : undefined,
+      mcpClient,
     });
-    
-    console.log(`[news] Raw result length:`, result?.length || 0);
-    console.log(`[news] Raw result preview:`, result?.substring(0, 200));
-    
-    // Parse JSON result from MCP tool
-    let newsData;
-    try {
-      newsData = JSON.parse(result);
-      console.log(`[news] Parsed successfully. Articles: ${newsData.articles?.length || 0}, Error: ${newsData.error || 'none'}`);
-      
-      // Check if there's an error in the response
-      if (newsData.error) {
-        console.error('[news] Error from news API:', newsData.error);
-        return res.json({
-          success: true,
-          data: {
-            articles: [],
-            count: 0,
-            start_date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-            end_date: new Date().toISOString().split('T')[0],
-            symbols: [],
-            error: newsData.error,
-          },
-        });
-      }
-    } catch (e) {
-      // If not JSON, return as error
-      console.error('[news] Failed to parse news result:', result);
-      return res.status(500).json({
-        success: false,
-        error: result || 'Failed to parse news data',
-      });
-    }
-    
-    res.json({ success: true, data: newsData });
+    res.json({ success: true, data: combined });
   } catch (error: any) {
     console.error('Error fetching news:', error);
     res.status(500).json({
@@ -84,8 +117,8 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// Get news for watchlist symbols (includes portfolio)
-router.get('/watchlist', async (req: Request, res: Response) => {
+// Get news for portfolio symbols only
+router.get('/portfolio', async (req: Request, res: Response) => {
   try {
     const mcpClient = getMCPClient();
     await mcpClient.initialize();
@@ -107,8 +140,49 @@ router.get('/watchlist', async (req: Request, res: Response) => {
         }
       }
     }
-    console.log(`[news/watchlist] Portfolio symbols: ${Array.from(portfolioSymbols).join(', ') || 'none'}`);
+    console.log(`[news/portfolio] Portfolio symbols: ${Array.from(portfolioSymbols).join(', ') || 'none'}`);
     
+    const allSymbols = Array.from(portfolioSymbols);
+    if (allSymbols.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          articles: [],
+          count: 0,
+          start_date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          end_date: new Date().toISOString().split('T')[0],
+          symbols: [],
+          message: 'No symbols in portfolio. Open positions to see news.',
+        },
+      });
+    }
+    
+    const { start, end, limit, source } = req.query;
+    const limitNum = typeof limit === 'string' ? parseInt(limit, 10) : undefined;
+    const combined = await getCombinedNews({
+      symbols: allSymbols,
+      start: typeof start === 'string' ? start : undefined,
+      end: typeof end === 'string' ? end : undefined,
+      limit: limitNum,
+      source: typeof source === 'string' ? source : undefined,
+      mcpClient,
+    });
+    res.json({ success: true, data: combined });
+  } catch (error: any) {
+    console.error('[news/portfolio] Error fetching portfolio news:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch portfolio news',
+    });
+  }
+});
+
+// Get news for watchlist symbols
+router.get('/watchlist', async (req: Request, res: Response) => {
+  try {
+    const mcpClient = getMCPClient();
+    await mcpClient.initialize();
+        
     // Get watchlists
     const watchlistsResult = await mcpClient.callTool({
       name: 'get_watchlists',
@@ -170,9 +244,8 @@ router.get('/watchlist', async (req: Request, res: Response) => {
       console.log('[news/watchlist] No watchlists found or invalid format');
     }
     
-    // Merge portfolio and watchlist symbols
-    const allSymbols = Array.from(new Set([...portfolioSymbols, ...watchlistSymbols]));
-    console.log(`[news/watchlist] Total symbols for news: ${allSymbols.length} - ${allSymbols.join(', ') || 'none'}`);
+    const allSymbols = Array.from(new Set([...watchlistSymbols]));
+    console.log(`[news/watchlist] Total watchlist symbols for news: ${allSymbols.length} - ${allSymbols.join(', ') || 'none'}`);
     
     // If no symbols, return empty result with helpful message
     if (allSymbols.length === 0) {
@@ -184,57 +257,22 @@ router.get('/watchlist', async (req: Request, res: Response) => {
           start_date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
           end_date: new Date().toISOString().split('T')[0],
           symbols: [],
-          message: 'No symbols in portfolio or watchlist. Add symbols to your watchlist or open positions to see news.',
+          message: 'No symbols in watchlist. Add symbols to your watchlist to see news.',
         },
       });
     }
     
-    // Fetch news for all symbols
-    const args: any = {
+    const { start, end, limit, source } = req.query;
+    const limitNum = typeof limit === 'string' ? parseInt(limit, 10) : undefined;
+    const combined = await getCombinedNews({
       symbols: allSymbols,
-    };
-    
-    const { start, end, limit } = req.query;
-    if (start && typeof start === 'string') {
-      args.start = start;
-    }
-    if (end && typeof end === 'string') {
-      args.end = end;
-    }
-    if (limit) {
-      const limitNum = parseInt(limit as string, 10);
-      if (!isNaN(limitNum)) {
-        args.limit = limitNum;
-      }
-    } else {
-      args.limit = 100; // Default limit
-    }
-    
-    console.log(`[news/watchlist] Fetching news with args:`, JSON.stringify(args));
-    const result = await mcpClient.callTool({
-      name: 'get_news',
-      arguments: args,
+      start: typeof start === 'string' ? start : undefined,
+      end: typeof end === 'string' ? end : undefined,
+      limit: limitNum,
+      source: typeof source === 'string' ? source : undefined,
+      mcpClient,
     });
-    
-    // Parse JSON result
-    let newsData;
-    try {
-      newsData = JSON.parse(result);
-      console.log(`[news/watchlist] Received ${newsData.articles?.length || 0} articles`);
-    } catch (e) {
-      console.error('[news/watchlist] Failed to parse news result:', result);
-      return res.status(500).json({
-        success: false,
-        error: result || 'Failed to parse news data',
-      });
-    }
-    
-    // Ensure symbols are included in response
-    if (!newsData.symbols) {
-      newsData.symbols = allSymbols;
-    }
-    
-    res.json({ success: true, data: newsData });
+    res.json({ success: true, data: combined });
   } catch (error: any) {
     console.error('[news/watchlist] Error fetching watchlist news:', error);
     res.status(500).json({
