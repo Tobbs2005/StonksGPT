@@ -112,21 +112,27 @@ npm install
 npm run dev
 ```
 
-Open the application:
+---
+
+## Open the application:
 
 Frontend: http://localhost:3000
-
 Backend API: http://localhost:3001
 
-Notes
+---
+
+---
+
+## Notes:
 
 The application uses paper trading by default
-
 AI-generated actions are validated before execution
-
 The architecture is designed to be extensible for additional agents and analytics
 
-License
+---
+
+## License
 
 MIT
 
+---
