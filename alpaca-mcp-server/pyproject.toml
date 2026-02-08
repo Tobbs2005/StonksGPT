@@ -51,6 +51,7 @@ dependencies = [
     "python-multipart>=0.0.22", # Security fix: avoid vulnerable multipart versions # Security fix: avoid redirect decompression bomb issue
     "urllib3>=2.6.3",
     "dedalus-labs>=0.2.0",
+    "requests>=2.31.0", # HTTP library for news API calls
 ]
 
 # Optional development dependencies

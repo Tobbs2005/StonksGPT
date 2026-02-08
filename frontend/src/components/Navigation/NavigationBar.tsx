@@ -1,4 +1,5 @@
-import { Home, LogOut, Moon, Sun } from 'lucide-react';
+import { Home, LogOut, Moon, Sun, Newspaper } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/contexts/theme-context';
 
@@ -10,6 +11,7 @@ interface NavigationBarProps {
 
 export function NavigationBar({ userName, onGoHome, onLogout }: NavigationBarProps) {
   const { theme, setTheme } = useTheme();
+  const navigate = useNavigate();
 
   const toggleTheme = () => {
     setTheme(theme === "light" ? "dark" : "light");
@@ -64,6 +66,18 @@ export function NavigationBar({ userName, onGoHome, onLogout }: NavigationBarPro
             >
               <Home className="h-4 w-4" />
               <span className="hidden sm:inline">Home</span>
+            </Button>
+
+            {/* News Button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/news')}
+              className="gap-2"
+              title="View news"
+            >
+              <Newspaper className="h-4 w-4" />
+              <span className="hidden sm:inline">News</span>
             </Button>
 
             {onLogout && (

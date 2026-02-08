@@ -144,4 +144,85 @@ export const chatApi = {
   },
 };
 
+export interface NewsArticle {
+  title: string;
+  source: string;
+  published_date: string;
+  summary: string;
+  url: string;
+  symbols: string[];
+  sentiment_score?: number;
+  sentiment_label?: string;
+}
+
+export interface NewsResponse {
+  articles: NewsArticle[];
+  count: number;
+  start_date: string;
+  end_date: string;
+  symbols: string[];
+  error?: string;
+  message?: string;
+}
+
+export const newsApi = {
+  getNews: async (params?: {
+    symbols?: string[];
+    start?: string;
+    end?: string;
+    limit?: number;
+  }): Promise<NewsResponse> => {
+    const queryParams: Record<string, string> = {};
+    if (params?.symbols && params.symbols.length > 0) {
+      queryParams.symbols = params.symbols.join(',');
+    }
+    if (params?.start) {
+      queryParams.start = params.start;
+    }
+    if (params?.end) {
+      queryParams.end = params.end;
+    }
+    if (params?.limit) {
+      queryParams.limit = params.limit.toString();
+    }
+    
+    const response = await api.get<ApiResponse<NewsResponse>>('/news', { params: queryParams });
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to fetch news');
+    }
+    return response.data.data || { articles: [], count: 0, start_date: '', end_date: '', symbols: [] };
+  },
+  
+  getWatchlistNews: async (params?: {
+    start?: string;
+    end?: string;
+    limit?: number;
+  }): Promise<NewsResponse> => {
+    const queryParams: Record<string, string> = {};
+    if (params?.start) {
+      queryParams.start = params.start;
+    }
+    if (params?.end) {
+      queryParams.end = params.end;
+    }
+    if (params?.limit) {
+      queryParams.limit = params.limit.toString();
+    }
+    
+    const response = await api.get<ApiResponse<NewsResponse>>('/news/watchlist', { params: queryParams });
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to fetch watchlist news');
+    }
+    return response.data.data || { articles: [], count: 0, start_date: '', end_date: '', symbols: [] };
+  },
+  
+  syncWatchlist: async (): Promise<{ success: boolean; symbolsAdded: string[]; totalSymbols: number; error?: string }> => {
+    const response = await api.post<ApiResponse<{ success: boolean; symbolsAdded: string[]; totalSymbols: number; error?: string }>>('/news/sync-watchlist');
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to sync watchlist');
+    }
+    return response.data.data || { success: false, symbolsAdded: [], totalSymbols: 0 };
+  },
+};
+
 export default api;

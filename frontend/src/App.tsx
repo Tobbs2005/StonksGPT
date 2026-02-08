@@ -5,6 +5,7 @@ import { AppPage } from '@/pages/AppPage';
 import { SessionsPage } from '@/pages/SessionsPage';
 import { SessionDetailPage } from '@/pages/SessionDetailPage';
 import { ChatPage } from '@/pages/ChatPage';
+import { NewsPage } from '@/pages/NewsPage';
 import { isAuthed } from '@/lib/auth';
 
 function App() {
@@ -44,6 +45,14 @@ function App() {
         element={
           <RequireAuth>
             <ChatPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/news"
+        element={
+          <RequireAuth>
+            <NewsPage />
           </RequireAuth>
         }
       />

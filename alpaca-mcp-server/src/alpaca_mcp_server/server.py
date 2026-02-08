@@ -21,6 +21,7 @@ import sys
 import time
 import uuid
 import argparse
+import requests
 from datetime import datetime, timedelta, date, timezone
 from typing import Dict, Any, List, Optional, Union
 from pathlib import Path
@@ -825,6 +826,329 @@ async def delete_watchlist_by_id(watchlist_id: str) -> str:
         return "Watchlist deleted successfully."
     except Exception as e:
         return f"Error deleting watchlist: {str(e)}"
+
+# ============================================================================
+# News Tools
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "title": "Get News",
+        "readOnlyHint": True,
+        "openWorldHint": True
+    }
+)
+async def get_news(
+    symbols: Optional[List[str]] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    limit: Optional[int] = 50
+) -> str:
+    """
+    Retrieves stock news articles for specified symbols.
+    Uses Finnhub News API (https://finnhub.io/api/v1/news).
+    
+    Args:
+        symbols (Optional[List[str]]): List of stock ticker symbols (e.g., ['AAPL', 'MSFT']). If None, returns general market news.
+        start (Optional[str]): Start date in YYYY-MM-DD format (default: 7 days ago)
+        end (Optional[str]): End date in YYYY-MM-DD format (default: today)
+        limit (Optional[int]): Maximum number of articles to return (default: 50, max: 1000)
+    
+    Returns:
+        str: JSON-formatted string containing news articles with title, source, published_date, summary, url, and related symbols
+    """
+    try:
+        # Get Finnhub API key from environment
+        finnhub_key = os.getenv('FINNHUB_API_KEY')
+        if not finnhub_key:
+            return json.dumps({
+                "error": "FINNHUB_API_KEY not set. Please set it in your .env file. Get a free key at https://finnhub.io/register",
+                "articles": [],
+                "count": 0,
+                "start_date": "",
+                "end_date": "",
+                "symbols": symbols or []
+            })
+        
+        # Set default dates if not provided
+        if not end:
+            end_date = datetime.now().date()
+        else:
+            end_date = _parse_date_ymd(end)
+        
+        if not start:
+            # Default to 30 days ago (Finnhub provides recent news)
+            start_date = end_date - timedelta(days=30)
+        else:
+            start_date = _parse_date_ymd(start)
+        
+        # Filter out crypto symbols (Finnhub News API doesn't support crypto well)
+        stock_symbols = []
+        crypto_symbols = ['BTC', 'ETH', 'SOL', 'DOGE', 'LTC', 'XRP', 'ADA', 'BNB', 'AVAX', 'USDT', 'USDC']
+        for sym in (symbols or []):
+            # Skip crypto symbols that end with USD/USDT/USDC or are pure crypto symbols
+            sym_upper = sym.upper()
+            is_crypto = False
+            
+            # Check if it ends with USD/USDT/USDC
+            if sym_upper.endswith('USD') or sym_upper.endswith('USDT') or sym_upper.endswith('USDC'):
+                base = sym_upper[:-3] if len(sym_upper) > 3 else sym_upper
+                if base in crypto_symbols:
+                    is_crypto = True
+            # Check if it's a pure crypto symbol
+            elif sym_upper in crypto_symbols:
+                is_crypto = True
+            
+            if is_crypto:
+                print(f"[get_news] Skipping crypto symbol {sym} (Finnhub News API doesn't support crypto)")
+                continue
+            
+            stock_symbols.append(sym)
+        
+        print(f"[get_news] Date range: {start_date.isoformat()} to {end_date.isoformat()}")
+        print(f"[get_news] Requested symbols: {symbols if symbols else 'all (general market news)'}")
+        print(f"[get_news] Filtered symbols: {len(symbols or [])} -> {len(stock_symbols)} stock symbols")
+        
+        # Use Finnhub News API
+        base_url = "https://finnhub.io/api/v1/news"
+        
+        all_articles = []
+        seen_urls = set()  # Track URLs to deduplicate
+        
+        # Fetch general market news once, then filter by symbols
+        # This is more efficient than making multiple API calls
+        print(f"[get_news] Fetching general market news (will filter for {len(stock_symbols)} symbol(s) if provided)")
+        
+        try:
+            # Build request parameters - fetch general market news
+            params = {
+                "token": finnhub_key,
+                "category": "general"
+            }
+            
+            response = requests.get(base_url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            print(f"[get_news] Finnhub API response status: {response.status_code}")
+            print(f"[get_news] Finnhub API response: {len(data) if isinstance(data, list) else 0} articles")
+            if isinstance(data, list) and len(data) > 0:
+                # Show sample of first article for debugging
+                first_article = data[0]
+                print(f"[get_news] Sample article: headline='{first_article.get('headline', 'N/A')[:50]}...', datetime={first_article.get('datetime', 'N/A')}, related={first_article.get('related', 'N/A')}")
+            elif not isinstance(data, list):
+                print(f"[get_news] Unexpected response type: {type(data)}, content: {str(data)[:200]}")
+            
+            # Parse articles from Finnhub's format
+            if isinstance(data, list):
+                articles_checked = 0
+                articles_date_filtered = 0
+                articles_symbol_filtered = 0
+                
+                for item in data:
+                    articles_checked += 1
+                    
+                    # Filter by date range (lenient - allow articles within range, or recent articles if date parsing fails)
+                    published_timestamp = item.get("datetime", 0)
+                    if published_timestamp:
+                        try:
+                            pub_date = datetime.fromtimestamp(published_timestamp, tz=timezone.utc).date()
+                            # Allow a 1-day buffer on both sides for timezone issues
+                            if pub_date < (start_date - timedelta(days=1)) or pub_date > (end_date + timedelta(days=1)):
+                                articles_date_filtered += 1
+                                continue
+                        except Exception as e:
+                            # If date parsing fails, include the article anyway (better to show something than nothing)
+                            print(f"[get_news] Date parsing error for timestamp {published_timestamp}: {e}, including article anyway")
+                            pass
+                    else:
+                        # If no timestamp, include the article (better to show something than nothing)
+                        print(f"[get_news] Article has no timestamp, including anyway")
+                    
+                    # Filter by symbols if provided
+                    if stock_symbols and len(stock_symbols) > 0:
+                        # Check if article relates to any of the requested symbols
+                        article_symbols = []
+                        if item.get("related"):
+                            article_symbols = [s.strip().upper() for s in item.get("related", "").split(",") if s.strip()]
+                        
+                        # Also check headline and summary for symbol mentions (case-insensitive)
+                        headline = item.get("headline", "").upper()
+                        summary = item.get("summary", "").upper()
+                        
+                        # Check if any requested symbol matches
+                        symbol_match = False
+                        for sym in stock_symbols:
+                            sym_upper = sym.upper()
+                            # Match in related symbols, headline, or summary
+                            if (sym_upper in article_symbols or 
+                                sym_upper in headline or 
+                                sym_upper in summary or
+                                f" {sym_upper} " in f" {headline} " or  # Word boundary matching
+                                f" {sym_upper} " in f" {summary} "):
+                                symbol_match = True
+                                break
+                        
+                        if not symbol_match:
+                            articles_symbol_filtered += 1
+                            continue
+                    
+                    # Check for duplicates by URL
+                    article_url = item.get("url", "")
+                    if article_url and article_url in seen_urls:
+                        continue  # Skip duplicate
+                    seen_urls.add(article_url)
+                    
+                    # Extract related symbols
+                    related_symbols = []
+                    if item.get("related"):
+                        related_symbols = [s.strip().upper() for s in item.get("related", "").split(",") if s.strip()]
+                    
+                    # Format published date
+                    published_str = ""
+                    if published_timestamp:
+                        try:
+                            dt = datetime.fromtimestamp(published_timestamp, tz=timezone.utc)
+                            published_str = dt.strftime("%Y%m%dT%H%M%S")
+                        except:
+                            published_str = str(published_timestamp)
+                    
+                    article = {
+                        "title": item.get("headline", "No title"),
+                        "source": item.get("source", "Unknown"),
+                        "published_date": published_str,
+                        "summary": item.get("summary", "")[:500],  # Truncate if too long
+                        "url": article_url,
+                        "symbols": related_symbols,
+                        "sentiment_score": 0,  # Finnhub doesn't provide sentiment in free tier
+                        "sentiment_label": "Neutral"
+                    }
+                    all_articles.append(article)
+                
+                print(f"[get_news] Processed {articles_checked} articles: {len(all_articles)} matched, {articles_date_filtered} filtered by date, {articles_symbol_filtered} filtered by symbol")
+                    
+        except requests.exceptions.HTTPError as e:
+            if e.response and e.response.status_code == 429:
+                error_msg = "Rate limited. Please wait a moment and try again."
+            else:
+                error_msg = f"HTTP error fetching news: {str(e)}"
+            print(f"[get_news] {error_msg}")
+            return json.dumps({
+                "error": error_msg,
+                "articles": [],
+                "count": 0,
+                "start_date": start_date.isoformat() if 'start_date' in locals() else "",
+                "end_date": end_date.isoformat() if 'end_date' in locals() else "",
+                "symbols": stock_symbols if 'stock_symbols' in locals() else (symbols or [])
+            })
+        except Exception as e:
+            error_msg = f"Error fetching news: {str(e)}"
+            print(f"[get_news] {error_msg}")
+            return json.dumps({
+                "error": error_msg,
+                "articles": [],
+                "count": 0,
+                "start_date": start_date.isoformat() if 'start_date' in locals() else "",
+                "end_date": end_date.isoformat() if 'end_date' in locals() else "",
+                "symbols": stock_symbols if 'stock_symbols' in locals() else (symbols or [])
+            })
+        
+        articles = all_articles
+        print(f"[get_news] Total articles collected: {len(articles)} (filtered for {len(stock_symbols)} symbol(s))")
+        
+        # If we have symbols but no matching articles, try fetching general market news as fallback
+        if len(articles) == 0 and stock_symbols and len(stock_symbols) > 0:
+            print(f"[get_news] No symbol-specific articles found, fetching general market news as fallback")
+            try:
+                # Fetch general market news without symbol filtering
+                params = {
+                    "token": finnhub_key,
+                    "category": "general"
+                }
+                response = requests.get(base_url, params=params, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+                
+                if isinstance(data, list):
+                    # Take the most recent articles (up to limit)
+                    for item in data[:limit or 50]:
+                        published_timestamp = item.get("datetime", 0)
+                        if published_timestamp:
+                            try:
+                                pub_date = datetime.fromtimestamp(published_timestamp, tz=timezone.utc).date()
+                                if pub_date < start_date or pub_date > end_date:
+                                    continue
+                            except:
+                                pass
+                        
+                        article_url = item.get("url", "")
+                        if article_url and article_url in seen_urls:
+                            continue
+                        seen_urls.add(article_url)
+                        
+                        related_symbols = []
+                        if item.get("related"):
+                            related_symbols = [s.strip().upper() for s in item.get("related", "").split(",") if s.strip()]
+                        
+                        published_str = ""
+                        if published_timestamp:
+                            try:
+                                dt = datetime.fromtimestamp(published_timestamp, tz=timezone.utc)
+                                published_str = dt.strftime("%Y%m%dT%H%M%S")
+                            except:
+                                published_str = str(published_timestamp)
+                        
+                        article = {
+                            "title": item.get("headline", "No title"),
+                            "source": item.get("source", "Unknown"),
+                            "published_date": published_str,
+                            "summary": item.get("summary", "")[:500],
+                            "url": article_url,
+                            "symbols": related_symbols,
+                            "sentiment_score": 0,
+                            "sentiment_label": "Neutral"
+                        }
+                        all_articles.append(article)
+                        if len(all_articles) >= (limit or 50):
+                            break
+                    
+                    articles = all_articles
+                    print(f"[get_news] Fallback: Added {len(articles)} general market news articles")
+            except Exception as e:
+                print(f"[get_news] Fallback fetch failed: {e}")
+        
+        # Sort by date (newest first)
+        articles.sort(key=lambda x: x.get("published_date", ""), reverse=True)
+        
+        # Limit results
+        articles = articles[:limit] if limit else articles
+        
+        result = {
+            "articles": articles,
+            "count": len(articles),
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "symbols": stock_symbols or []
+        }
+        
+        if len(articles) == 0:
+            if stock_symbols and len(stock_symbols) > 0:
+                result["error"] = f"No articles found for symbols {', '.join(stock_symbols)} in the specified date range. Try expanding the date range or checking if the symbols are correct."
+            else:
+                result["error"] = "No articles found in the specified date range. Try expanding the date range."
+            print(f"[get_news] No articles found after filtering")
+        
+        return json.dumps(result, indent=2)
+        
+    except Exception as e:
+        return json.dumps({
+            "error": f"Error retrieving news: {str(e)}",
+            "articles": [],
+            "count": 0,
+            "start_date": start_date.isoformat() if 'start_date' in locals() else "",
+            "end_date": end_date.isoformat() if 'end_date' in locals() else "",
+            "symbols": symbols or []
+        })
 
 # ============================================================================
 # Market Calendar Tools

@@ -12,8 +12,8 @@ export function PageShell({ userName, onGoHome, onLogout, children }: PageShellP
   return (
     <div className="h-screen flex flex-col bg-background">
       <NavigationBar userName={userName} onGoHome={onGoHome} onLogout={onLogout} />
-      <main className="flex-1 overflow-hidden bg-background">
-        <div className="h-full w-full flex flex-col p-6 gap-6 overflow-hidden">
+      <main className="flex-1 overflow-y-auto bg-background">
+        <div className="w-full flex flex-col p-6 gap-6">
           {children}
         </div>
       </main>

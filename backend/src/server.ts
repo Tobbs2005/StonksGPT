@@ -7,6 +7,7 @@ import positionsRoutes from './routes/positions';
 import ordersRoutes from './routes/orders';
 import chatRoutes from './routes/chat';
 import chartRoutes from './routes/chart';
+import newsRoutes from './routes/news';
 
 // Load .env file - prioritize root, then backend, then alpaca-mcp-server
 const rootEnvPath = path.join(__dirname, '../../.env');
@@ -41,6 +42,7 @@ app.use('/api/positions', positionsRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/chart', chartRoutes);
+app.use('/api/news', newsRoutes);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

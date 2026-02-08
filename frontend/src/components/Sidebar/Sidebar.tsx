@@ -5,7 +5,7 @@ import { PendingOrdersList } from './PendingOrdersList';
 
 export function Sidebar() {
   return (
-    <div className="h-full w-full flex flex-col space-y-4">
+    <div className="h-full w-full flex flex-col space-y-4 overflow-y-auto">
       {/* Account Info Section */}
       <div className="space-y-2">
         <h3 className="px-2 text-xs font-semibold uppercase tracking-widest text-sidebar-foreground/70">
