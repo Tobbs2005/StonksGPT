@@ -1,51 +1,71 @@
-# Alpaca MCP Trading Dashboard
+# StonksGPT
 
-A full-stack web application for interacting with the Alpaca Trading API through the Model Context Protocol (MCP).
+A full-stack trading and portfolio management application that combines real-time market data, AI-assisted insights, and safe trade execution using the Alpaca Trading API and Model Context Protocol (MCP).
 
-## Architecture
+The platform allows users to track portfolios, analyze stock performance, stay updated with market news, and execute trades through a modern dashboard with optional natural-language interaction.
 
-- **Backend**: Express.js server that wraps the Alpaca MCP server and exposes REST endpoints
-- **Frontend**: React application with shadcn UI components featuring a chat interface and trading dashboard
+---
 
-## Quick Start
+## What This App Does
 
-### Prerequisites
+- Displays live stock price charts and historical performance
+- Surfaces relevant stock and market news to inform trading decisions
+- Tracks user portfolios, positions, and investment allocation
+- Enables users to buy and sell assets through Alpaca’s trading API
+- Provides a personalized account side panel with balances, buying power, and account metadata
+- Supports dark mode and responsive layouts for desktop and mobile use
 
-- Node.js 18+
-- Python 3.10+ with `uv` installed
-- Alpaca API credentials (get them from [Alpaca Dashboard](https://app.alpaca.markets/paper/dashboard/overview))
+---
 
-### Setup
+## Architecture Overview
 
-1. **Configure Alpaca MCP Server** (if not already done):
-```bash
-cd alpaca-mcp-server
-uvx alpaca-mcp-server init
-```
+The system is designed with a clear separation between AI tooling, backend logic, and frontend presentation.
 
-2. **Set up Backend**:
-```bash
-cd backend
-npm install
-export ALPACA_API_KEY="your_api_key"
-export ALPACA_SECRET_KEY="your_secret_key"
-npm run dev
-```
+### Backend
+- Node.js (Express) REST API serving as the application control layer
+- Wraps a Python-based Alpaca MCP server to safely execute structured trading actions
+- Integrates with a database to persist user state, portfolios, and session data
+- Validates and routes requests between the frontend, LLM, and Alpaca API
 
-3. **Set up Frontend** (in a new terminal):
-```bash
-cd frontend
-npm install
-npm run dev
-```
+### AI Layer
+- Uses the Gemini API to interpret natural-language queries and extract structured trading intents
+- LLM outputs are validated and constrained before any trading action is executed
 
-4. **Open the application**:
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:3001
+### Frontend
+- React application built with modern component patterns and shadcn UI
+- Trading dashboard with charts, portfolio views, and order management
+- Chat interface for AI-assisted queries and actions
+- Account side panel for user and portfolio information
+- Light/dark mode toggle and responsive design
+
+---
+
+## Tech Stack
+
+- Frontend: React, shadcn UI
+- Backend: Node.js (Express)
+- AI: Gemini API
+- Protocol: Python Model Context Protocol (MCP)
+- Trading API: Alpaca (paper trading)
+- Database: Supabase
+
+---
+
+## Features
+
+- Portfolio tracking with holdings, allocations, and unrealized P/L
+- Market data visualization with interactive stock charts
+- Stock and market news feed
+- AI-assisted natural-language interaction
+- Order placement and management via Alpaca API
+- Account dashboard with balances and buying power
+- Automatic data refresh
+- Dark mode support
+- Responsive UI for desktop and mobile devices
+
+---
 
 ## Project Structure
-
-```
 TradeBot/
 ├── alpaca-mcp-server/    # Python MCP server (existing)
 ├── backend/              # Express.js REST API
@@ -56,22 +76,62 @@ TradeBot/
     └── src/
         ├── components/  # React components
         └── lib/         # API client
+
+---
+
+## Getting Started
+
+### Prerequisites
+- Node.js 18+
+- Python 3.10+
+- uv installed for Python environment management
+- Alpaca API credentials (paper trading)
+
+### Setup
+
+1. Initialize the Alpaca MCP server:
+```bash
+cd alpaca-mcp-server
+uvx alpaca-mcp-server init
 ```
 
-## Features
+2. Start the backend:
+```bash
+cd backend
+npm install
+export ALPACA_API_KEY="your_api_key"
+export ALPACA_SECRET_KEY="your_secret_key"
+npm run dev
+```
 
-- **Chat Interface**: Natural language interaction with trading operations
-- **Real-time Positions**: View all open positions with P/L
-- **Account Dashboard**: Monitor account balance, buying power, and equity
-- **Order Management**: Place and manage stock, crypto, and option orders
-- **Auto-refresh**: Positions and account info update every 30 seconds
-- **Responsive Design**: Works on desktop and mobile devices
-- **Dark Mode**: Toggle between light and dark themes
+3. Start the frontend:
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-## Development
+---
 
-See individual README files in `backend/` and `frontend/` directories for more details.
+## Open the application:
+
+Frontend: http://localhost:3000
+Backend API: http://localhost:3001
+
+---
+
+---
+
+## Notes:
+
+The application uses paper trading by default
+AI-generated actions are validated before execution
+The architecture is designed to be extensible for additional agents and analytics
+
+---
 
 ## License
 
 MIT
+
+---
