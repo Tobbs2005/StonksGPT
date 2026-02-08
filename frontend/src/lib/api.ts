@@ -92,6 +92,42 @@ export const ordersApi = {
   },
 };
 
+export interface PortfolioHistoryData {
+  timestamp: number[];
+  equity: number[];
+  profit_loss: number[];
+  profit_loss_pct: number[];
+  base_value: number | null;
+  timeframe: string;
+}
+
+export const portfolioApi = {
+  getHistory: async (params?: {
+    period?: string;
+    timeframe?: string;
+    start?: string;
+    end?: string;
+  }): Promise<PortfolioHistoryData> => {
+    const queryParams: Record<string, string> = {};
+    if (params?.period) queryParams.period = params.period;
+    if (params?.timeframe) queryParams.timeframe = params.timeframe;
+    if (params?.start) queryParams.start = params.start;
+    if (params?.end) queryParams.end = params.end;
+
+    const response = await api.get<ApiResponse<string>>('/portfolio/history', { params: queryParams });
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to fetch portfolio history');
+    }
+    // The MCP tool returns a JSON string; parse it
+    const raw = response.data.data || '{}';
+    try {
+      return JSON.parse(raw) as PortfolioHistoryData;
+    } catch {
+      throw new Error('Invalid portfolio history response');
+    }
+  },
+};
+
 export type ChatHistoryMessage = {
   role: 'user' | 'assistant';
   content: string;
