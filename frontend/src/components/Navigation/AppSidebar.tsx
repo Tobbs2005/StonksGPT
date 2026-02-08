@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, User, CalendarDays, Newspaper, MessageSquare } from 'lucide-react';
+import { Home, User, CalendarDays, Newspaper } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -8,7 +8,6 @@ const navItems = [
   { label: 'Account', icon: User, path: '/account' },
   { label: 'Sessions', icon: CalendarDays, path: '/sessions' },
   { label: 'News', icon: Newspaper, path: '/news' },
-  { label: 'Chat', icon: MessageSquare, path: '/chat' },
 ] as const;
 
 export function AppSidebar() {

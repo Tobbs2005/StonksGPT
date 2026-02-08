@@ -1,19 +1,31 @@
 import { useState } from 'react';
-import { TradingSession, ensureTodaySession, getSession, getSessions, getTodayDate } from '@/lib/sessions';
+import { useNavigate } from 'react-router-dom';
+import {
+  TradingSession,
+  ensureTodaySession,
+  getSession,
+  getSessions,
+  getTodayDate,
+  deleteSession,
+} from '@/lib/sessions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { MessageSquare, Headphones, Trash2 } from 'lucide-react';
 
 interface SessionsListProps {
   onStartSession: (session: TradingSession) => void;
-  onViewSession: (date: string) => void;
 }
 
-export function SessionsList({ onStartSession, onViewSession }: SessionsListProps) {
+export function SessionsList({ onStartSession }: SessionsListProps) {
+  const navigate = useNavigate();
   const [sessions, setSessions] = useState<TradingSession[]>(getSessions());
   const [showModal, setShowModal] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+
+  /* ── Delete confirmation state ──────────────────────── */
+  const [deleteTarget, setDeleteTarget] = useState<TradingSession | null>(null);
 
   const handleOpenModal = () => {
     const existing = getSession(getTodayDate());
@@ -35,6 +47,14 @@ export function SessionsList({ onStartSession, onViewSession }: SessionsListProp
     setSessions(getSessions());
     setShowModal(false);
     onStartSession(session);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!deleteTarget) return;
+    deleteSession(deleteTarget.date);
+    const remaining = getSessions();
+    setSessions(remaining);
+    setDeleteTarget(null);
   };
 
   return (
@@ -60,26 +80,56 @@ export function SessionsList({ onStartSession, onViewSession }: SessionsListProp
           {sessions.map((session) => (
             <Card key={session.date} className="border border-border/60">
               <CardContent className="p-4 flex items-center justify-between">
-                <div className="space-y-1">
+                <div className="space-y-1 min-w-0 flex-1">
                   <p className="text-sm font-semibold">
                     {session.name || session.date}
                   </p>
                   {session.description && (
-                    <p className="text-xs text-muted-foreground">{session.description}</p>
+                    <p className="text-xs text-muted-foreground truncate">{session.description}</p>
                   )}
                   <p className="text-xs text-muted-foreground">
                     Created {new Date(session.createdAt).toLocaleString()}
                   </p>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => onViewSession(session.date)}>
-                  View
-                </Button>
+                <div className="flex items-center gap-2 shrink-0 ml-4">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => navigate(`/sessions/${session.date}/chat`)}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
+                    Open Chat
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => {
+                      // TODO: ElevenLabs session playback / summary
+                    }}
+                    title="Playback session summary"
+                  >
+                    <Headphones className="h-3.5 w-3.5 mr-1.5" />
+                    Playback
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-red-500"
+                    title="Delete session"
+                    onClick={() => setDeleteTarget(session)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
 
+      {/* ── Create session modal ──────────────────────────── */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <Card className="w-full max-w-lg">
@@ -121,6 +171,40 @@ export function SessionsList({ onStartSession, onViewSession }: SessionsListProp
                   </Button>
                 </div>
               </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Delete confirmation modal ─────────────────────── */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <Card className="w-full max-w-sm">
+            <CardHeader className="space-y-2">
+              <CardTitle>Delete session?</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                This will permanently remove the session
+                <span className="font-medium text-foreground">
+                  {' '}&ldquo;{deleteTarget.name || deleteTarget.date}&rdquo;{' '}
+                </span>
+                and its saved history.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => setDeleteTarget(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={handleConfirmDelete}
+                >
+                  Delete
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>

@@ -4,8 +4,7 @@ import { LoginPage } from '@/pages/LoginPage';
 import { AppPage } from '@/pages/AppPage';
 import { AccountPage } from '@/pages/AccountPage';
 import { SessionsPage } from '@/pages/SessionsPage';
-import { SessionDetailPage } from '@/pages/SessionDetailPage';
-import { ChatPage } from '@/pages/ChatPage';
+import { SessionChatPage } from '@/pages/SessionChatPage';
 import { NewsPage } from '@/pages/NewsPage';
 import { isAuthed } from '@/lib/auth';
 
@@ -42,18 +41,10 @@ function App() {
         }
       />
       <Route
-        path="/sessions/:date"
+        path="/sessions/:date/chat"
         element={
           <RequireAuth>
-            <SessionDetailPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/chat"
-        element={
-          <RequireAuth>
-            <ChatPage />
+            <SessionChatPage />
           </RequireAuth>
         }
       />
@@ -65,6 +56,9 @@ function App() {
           </RequireAuth>
         }
       />
+      {/* Legacy routes → redirect to Home */}
+      <Route path="/chat" element={<Navigate to="/app" replace />} />
+      <Route path="/sessions/:date" element={<Navigate to="/sessions" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

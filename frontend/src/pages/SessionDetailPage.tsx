@@ -3,6 +3,7 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { getSession } from '@/lib/sessions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { MessageSquare } from 'lucide-react';
 
 export function SessionDetailPage() {
   const { date } = useParams<{ date: string }>();
@@ -42,14 +43,19 @@ export function SessionDetailPage() {
                   {new Date(session.createdAt).toLocaleString()}
                 </p>
               </div>
-              <Button onClick={() => navigate('/chat')}>Open Chatbot</Button>
+              <Button onClick={() => navigate(`/sessions/${date}/chat`)}>
+                <MessageSquare className="h-4 w-4 mr-2" />
+                Open Chat
+              </Button>
             </>
           ) : (
             <>
               <p className="text-sm text-muted-foreground">
                 This session does not exist. Start a new session to begin trading.
               </p>
-              <Button onClick={() => navigate('/chat')}>Start Trading Session</Button>
+              <Button onClick={() => navigate('/app')}>
+                Go to Home
+              </Button>
             </>
           )}
         </CardContent>

@@ -41,6 +41,15 @@ export function getTodayDate(): string {
   return format(new Date(), 'yyyy-MM-dd');
 }
 
+export function deleteSession(date: string): void {
+  const sessions = readSessions().filter((s) => s.date !== date);
+  writeSessions(sessions);
+}
+
+export function deleteAllSessions(): void {
+  writeSessions([]);
+}
+
 export function ensureTodaySession(details?: { name?: string; description?: string }): TradingSession {
   const sessions = readSessions();
   const today = getTodayDate();
