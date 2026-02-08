@@ -195,11 +195,11 @@ export function MessageList({
 
       {activeArticle && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4"
           onClick={() => setActiveArticle(null)}
         >
           <Card
-            className="w-full max-w-2xl"
+            className="w-full max-w-2xl shadow-modal border-border/30"
             onClick={(event) => event.stopPropagation()}
           >
             <CardHeader className="space-y-2">

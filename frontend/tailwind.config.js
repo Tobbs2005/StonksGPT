@@ -51,14 +51,16 @@ export default {
   				'2': 'hsl(var(--chart-2))',
   				'3': 'hsl(var(--chart-3))',
   				'4': 'hsl(var(--chart-4))',
-  				'5': 'hsl(var(--chart-5))',
-  				'1': 'hsl(var(--chart-1))',
-  				'2': 'hsl(var(--chart-2))',
-  				'3': 'hsl(var(--chart-3))',
-  				'4': 'hsl(var(--chart-4))',
   				'5': 'hsl(var(--chart-5))'
   			}
-  		}
+  		},
+  		boxShadow: {
+  			/* iOS-style layered shadows */
+  			'surface': '0 1px 2px 0 rgb(0 0 0 / 0.03), 0 2px 6px 0 rgb(0 0 0 / 0.04)',
+  			'elevated': '0 1px 3px 0 rgb(0 0 0 / 0.04), 0 4px 12px 0 rgb(0 0 0 / 0.06)',
+  			'float': '0 2px 8px 0 rgb(0 0 0 / 0.06), 0 8px 24px 0 rgb(0 0 0 / 0.10)',
+  			'modal': '0 4px 16px 0 rgb(0 0 0 / 0.08), 0 16px 48px 0 rgb(0 0 0 / 0.16)',
+  		},
   	}
   },
   plugins: [require("tailwindcss-animate")],

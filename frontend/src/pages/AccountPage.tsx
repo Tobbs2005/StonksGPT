@@ -178,7 +178,7 @@ export function AccountPage() {
         </div>
 
         {/* ── Primary tabs ───────────────────────────────────── */}
-        <div className="flex items-center gap-1 mt-4 border-b border-border">
+        <div className="flex items-center gap-1 mt-4 border-b border-border/50">
           {primaryTabs.map((tab) => (
             <button
               key={tab.key}
@@ -201,7 +201,7 @@ export function AccountPage() {
             <button
               onClick={() => setInternalView('assets-analysis')}
               className={cn(
-                'px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
+                'px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-150 ease-out',
                 internalView === 'assets-analysis'
                   ? 'bg-secondary text-secondary-foreground'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
@@ -212,7 +212,7 @@ export function AccountPage() {
             <button
               onClick={() => setInternalView('pl-analysis')}
               className={cn(
-                'px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
+                'px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-150 ease-out',
                 internalView === 'pl-analysis'
                   ? 'bg-secondary text-secondary-foreground'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'

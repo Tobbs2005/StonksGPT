@@ -23,7 +23,7 @@
     --border: 214 24% 90%;
     --input: 214 24% 90%;
     --ring: 168 76% 36%;
-    --radius: 0.5rem;
+    --radius: 0.625rem;
     --chart-1: 168 76% 36%;
     --chart-2: 200 80% 42%;
     --chart-3: 28 90% 60%;
@@ -66,5 +66,7 @@
   body {
     @apply bg-background text-foreground;
     @apply overflow-hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }

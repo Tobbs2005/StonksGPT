@@ -156,7 +156,7 @@ export function AppPage() {
               {recentSessions.map((session) => (
                 <Card
                   key={session.date}
-                  className="border-border/40 hover:border-border transition-colors cursor-pointer"
+                  className="border-border/40 hover:shadow-elevated transition-all duration-200 ease-out cursor-pointer"
                   onClick={() => navigate(`/sessions/${session.date}/chat`)}
                 >
                   <CardContent className="p-3 flex items-center justify-between">
@@ -230,8 +230,8 @@ export function AppPage() {
 
       {/* ── Session creation modal ─────────────────────────── */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <Card className="w-full max-w-lg">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+          <Card className="w-full max-w-lg shadow-modal border-border/30">
             <CardHeader className="space-y-2">
               <CardTitle>
                 {todaySession ? 'Update Session' : 'Start New Trading Session'}
@@ -261,7 +261,7 @@ export function AppPage() {
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder="What do you want to focus on today?"
-                    className="min-h-[120px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className="min-h-[120px] w-full rounded-lg border border-input/60 bg-transparent px-3 py-2 text-sm shadow-sm transition-all duration-150 ease-out placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:border-ring/50"
                   />
                 </div>
                 <div className="flex items-center justify-end gap-2">
@@ -284,8 +284,8 @@ export function AppPage() {
 
       {/* ── Delete single session confirmation ─────────────── */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <Card className="w-full max-w-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+          <Card className="w-full max-w-sm shadow-modal border-border/30">
             <CardHeader className="space-y-2">
               <CardTitle>Delete session?</CardTitle>
               <p className="text-sm text-muted-foreground">
@@ -312,8 +312,8 @@ export function AppPage() {
 
       {/* ── Clear all sessions confirmation ────────────────── */}
       {showClearAll && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <Card className="w-full max-w-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+          <Card className="w-full max-w-sm shadow-modal border-border/30">
             <CardHeader className="space-y-2">
               <CardTitle>Clear all sessions?</CardTitle>
               <p className="text-sm text-muted-foreground">

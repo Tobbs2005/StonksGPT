@@ -225,8 +225,8 @@ export function ChatInterface() {
   };
 
   return (
-    <Card className="h-full w-full flex flex-col border-border/60 bg-card/95 rounded-2xl shadow-lg overflow-hidden">
-      <CardHeader className="border-b border-border/40 px-6 py-4 shrink-0">
+    <Card className="h-full w-full flex flex-col border-border/30 bg-card/95 rounded-2xl shadow-elevated overflow-hidden">
+      <CardHeader className="border-b border-border/30 px-6 py-4 shrink-0 bg-card/60 backdrop-blur-xl">
         <div>
           <CardTitle className="text-lg">StonksGPT</CardTitle>
           <p className="text-sm text-muted-foreground">Real-time trading assistant</p>
@@ -245,7 +245,7 @@ export function ChatInterface() {
         </ScrollArea>
       </CardContent>
 
-      <div className="border-t border-border/40 bg-muted/20 shrink-0">
+      <div className="border-t border-border/30 bg-muted/10 shrink-0">
         <MessageInput onSend={handleSend} disabled={isLoading} />
       </div>
     </Card>

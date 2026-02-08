@@ -15,12 +15,12 @@ export function TopBar({ userName, onLogout }: TopBarProps) {
   };
 
   return (
-    <header className="sticky top-0 z-10 border-b border-border bg-background px-6 py-3">
+    <header className="sticky top-0 z-10 border-b border-border/40 bg-background/80 backdrop-blur-xl px-6 py-3 shadow-[0_1px_3px_0_rgb(0_0_0/0.02)]">
       <div className="flex items-center justify-end gap-4">
         <span className="text-sm text-muted-foreground hidden sm:inline">
           Welcome, {userName}
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <Button
             variant="ghost"
             size="sm"

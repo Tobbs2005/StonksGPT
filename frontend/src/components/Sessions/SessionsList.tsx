@@ -78,7 +78,7 @@ export function SessionsList({ onStartSession }: SessionsListProps) {
       ) : (
         <div className="space-y-3">
           {sessions.map((session) => (
-            <Card key={session.date} className="border border-border/60">
+            <Card key={session.date} className="border-border/40 hover:shadow-elevated transition-all duration-200 ease-out">
               <CardContent className="p-4 flex items-center justify-between">
                 <div className="space-y-1 min-w-0 flex-1">
                   <p className="text-sm font-semibold">
@@ -131,8 +131,8 @@ export function SessionsList({ onStartSession }: SessionsListProps) {
 
       {/* ── Create session modal ──────────────────────────── */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <Card className="w-full max-w-lg">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+          <Card className="w-full max-w-lg shadow-modal border-border/30">
             <CardHeader className="space-y-2">
               <CardTitle>Start New Trading Session</CardTitle>
               <p className="text-sm text-muted-foreground">
@@ -155,7 +155,7 @@ export function SessionsList({ onStartSession }: SessionsListProps) {
                     value={description}
                     onChange={(event) => setDescription(event.target.value)}
                     placeholder="What do you want to focus on today?"
-                    className="min-h-[120px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className="min-h-[120px] w-full rounded-lg border border-input/60 bg-transparent px-3 py-2 text-sm shadow-sm transition-all duration-150 ease-out placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:border-ring/50"
                   />
                 </div>
                 <div className="flex items-center justify-end gap-2">
@@ -178,8 +178,8 @@ export function SessionsList({ onStartSession }: SessionsListProps) {
 
       {/* ── Delete confirmation modal ─────────────────────── */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <Card className="w-full max-w-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+          <Card className="w-full max-w-sm shadow-modal border-border/30">
             <CardHeader className="space-y-2">
               <CardTitle>Delete session?</CardTitle>
               <p className="text-sm text-muted-foreground">

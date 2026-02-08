@@ -25,7 +25,7 @@ export function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-6">
-      <Card className="w-full max-w-md shadow-lg">
+      <Card className="w-full max-w-md shadow-float border-border/30">
         <CardHeader className="space-y-2">
           <CardTitle className="text-2xl">Welcome back</CardTitle>
           <p className="text-sm text-muted-foreground">

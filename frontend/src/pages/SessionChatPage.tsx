@@ -28,7 +28,7 @@ export function SessionChatPage() {
     <DashboardLayout flush>
       <div className="h-full w-full flex flex-col overflow-hidden">
         {/* ── Session header (compact) ──────────────────────── */}
-        <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 border-b border-border bg-card/50">
+        <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 border-b border-border/40 bg-card/60 backdrop-blur-xl">
           <Button
             variant="ghost"
             size="icon"

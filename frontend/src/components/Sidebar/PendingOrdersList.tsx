@@ -267,18 +267,18 @@ export function PendingOrdersList() {
       )}
 
       {/* ── Order rows ──────────────────────────────────── */}
-      <div className="rounded-md border border-border overflow-hidden">
+      <div className="rounded-xl border border-border/40 overflow-hidden shadow-surface">
         {visibleOrders.map((order, idx) => {
           const isBuy = order.side?.toLowerCase() === 'buy';
           const hasError = order.id ? errorIds.has(order.id) : false;
 
           return (
             <div key={`${order.symbol}-${order.id || idx}`}>
-              {idx > 0 && <Separator />}
+              {idx > 0 && <Separator className="opacity-50" />}
               <div
                 className={cn(
-                  'flex items-center gap-3 px-4 py-3 transition-all duration-150',
-                  'hover:bg-muted/50 hover:-translate-y-[0.5px]',
+                  'flex items-center gap-3 px-4 py-3 transition-all duration-200 ease-out',
+                  'hover:bg-muted/40',
                 )}
               >
                 {/* ── Left: Ticker + side badge ────────────── */}

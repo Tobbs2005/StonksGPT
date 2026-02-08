@@ -22,17 +22,17 @@ export function AppSidebar() {
   };
 
   return (
-    <aside className="w-56 shrink-0 border-r border-border bg-card h-full flex flex-col">
+    <aside className="w-56 shrink-0 border-r border-border/40 bg-card/80 backdrop-blur-xl h-full flex flex-col shadow-[1px_0_8px_0_rgb(0_0_0/0.03)]">
       {/* Logo */}
-      <div className="flex items-center gap-3 px-4 py-5 border-b border-border">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+      <div className="flex items-center gap-3 px-4 py-5 border-b border-border/40">
+        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary shadow-surface">
           <div className="h-4 w-4 rounded-sm bg-primary-foreground" />
         </div>
         <h1 className="text-lg font-semibold text-foreground">StonksGPT</h1>
       </div>
 
       {/* Nav items */}
-      <nav className="flex-1 flex flex-col gap-1 px-3 py-4">
+      <nav className="flex-1 flex flex-col gap-0.5 px-3 py-4">
         {navItems.map((item) => {
           const active = isActive(item.path);
           return (
@@ -41,8 +41,8 @@ export function AppSidebar() {
               variant={active ? 'secondary' : 'ghost'}
               size="sm"
               className={cn(
-                'w-full justify-start gap-3 px-3 h-9',
-                active && 'font-semibold'
+                'w-full justify-start gap-3 px-3 h-9 rounded-lg',
+                active && 'font-semibold shadow-sm'
               )}
               onClick={() => navigate(item.path)}
             >
