@@ -2,6 +2,7 @@ import { getMCPClient } from '../mcp/client';
 import { MCPToolCall } from '../types';
 import { compressToolResult } from './result-compressor';
 import { resolveSymbols, searchWeb } from './web-search';
+import { fetchMarketAuxNews } from '../services/marketaux';
 
 export interface LLMConfig {
   provider: 'dedalus';
@@ -22,6 +23,11 @@ export interface ToolSchema {
 export interface LLMToolCall {
   name: string;
   arguments: Record<string, any>;
+}
+
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
 }
 
 /**
@@ -207,7 +213,7 @@ export class LLMService {
   /**
    * Process a user message and return a response, potentially calling MCP tools
    */
-  async processMessage(userMessage: string): Promise<string> {
+  async processMessage(userMessage: string, history?: ChatHistoryMessage[]): Promise<string> {
     this.ensureConfigInitialized();
     
     if (!this.config || !this.isAvailable()) {
@@ -255,6 +261,12 @@ CHART CAPABILITIES:
 - The chart data will be automatically displayed in the frontend
 - Always include the chart data in your response when calling get_chart_data
 
+NEWS CAPABILITIES:
+- Use get_news when users ask for recent news or headlines about specific symbols
+- Use get_portfolio_news when users ask for news on their portfolio
+- Use get_watchlist_news when users ask for news on their watchlist
+- If portfolio/watchlist news tools are unavailable, use get_all_positions/get_watchlists then call get_news with the symbols
+
 TRADING EXECUTION:
 - Use "notional" when user specifies dollar amount (e.g., "$67" → notional: 67)
 - Use "quantity" when user specifies number of shares (e.g., "10 shares" → quantity: 10)
@@ -263,13 +275,20 @@ TRADING EXECUTION:
 - Always verify symbols with get_asset() before placing orders
 - Execute ALL requested trades - do not stop after finding some symbols`;
     
-    return await this.processWithDedalus(userMessage, systemPrompt, mcpClient);
+    const sanitizedHistory = Array.isArray(history)
+      ? history
+          .filter((item) => item && typeof item.content === 'string' && (item.role === 'user' || item.role === 'assistant'))
+          .slice(-3)
+      : [];
+
+    return await this.processWithDedalus(userMessage, systemPrompt, mcpClient, sanitizedHistory);
   }
 
   private async processWithDedalus(
     userMessage: string,
     systemPrompt: string,
-    mcpClient: any
+    mcpClient: any,
+    history: ChatHistoryMessage[] = []
   ): Promise<string> {
     // Try SDK first, then fall back to REST API
     let useSDK = false;
@@ -323,8 +342,13 @@ TRADING EXECUTION:
         // Add web search servers to MCP servers list
         mcpServers.push(...webSearchServers);
 
+        const historyText = history.length
+          ? `RECENT CONTEXT:\n${history
+              .map((item) => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.content}`)
+              .join('\n')}\n\n`
+          : '';
         const response = await runner.run({
-          input: userMessage,
+          input: `${historyText}${userMessage}`,
           model: [this.config!.model],
           mcp_servers: mcpServers,
           // Don't pass tools - let Dedalus discover them from MCP servers automatically
@@ -383,6 +407,56 @@ TRADING EXECUTION:
                name.includes('calendar') ||
                name.includes('clock');
       });
+
+      const newsTools = filteredTools.filter((t: ToolSchema) => {
+        const name = t.name.toLowerCase();
+        return name.includes('news');
+      });
+
+      const customNewsTools: ToolSchema[] = [
+        {
+          name: 'get_portfolio_news',
+          description: 'Fetch recent news for symbols in the user portfolio.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              start: {
+                type: 'string',
+                description: 'Start date (YYYY-MM-DD). Optional.',
+              },
+              end: {
+                type: 'string',
+                description: 'End date (YYYY-MM-DD). Optional.',
+              },
+              limit: {
+                type: 'number',
+                description: 'Maximum number of articles to return.',
+              },
+            },
+          },
+        },
+        {
+          name: 'get_watchlist_news',
+          description: 'Fetch recent news for symbols in the user watchlist.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              start: {
+                type: 'string',
+                description: 'Start date (YYYY-MM-DD). Optional.',
+              },
+              end: {
+                type: 'string',
+                description: 'End date (YYYY-MM-DD). Optional.',
+              },
+              limit: {
+                type: 'number',
+                description: 'Maximum number of articles to return.',
+              },
+            },
+          },
+        },
+      ];
       
       // Add web search tools for symbol resolution and research
       const webSearchTools: ToolSchema[] = [
@@ -439,6 +513,8 @@ TRADING EXECUTION:
       // Prioritize web search tools early so they're included even if we hit the limit
       const prioritizedTools = [
         ...webSearchTools, // Add web search tools first to ensure they're included
+        ...newsTools,
+        ...customNewsTools,
         ...stockTradingTools,
         ...stockMarketDataTools,
         ...assetTools,
@@ -457,7 +533,7 @@ TRADING EXECUTION:
         parameters: tool.inputSchema || { type: 'object', properties: {} },
       }));
       
-      return await this.processWithDedalusREST(userMessage, systemPrompt, functions, mcpClient);
+      return await this.processWithDedalusREST(userMessage, systemPrompt, functions, mcpClient, history);
     }
 
     throw new Error('Unexpected error in Dedalus processing');
@@ -467,7 +543,8 @@ TRADING EXECUTION:
     userMessage: string,
     systemPrompt: string,
     functions: any[],
-    mcpClient: any
+    mcpClient: any,
+    history: ChatHistoryMessage[] = []
   ): Promise<string> {
     // Use Dedalus Labs OpenAI-compatible REST API
     const apiKey = this.config!.apiKey;
@@ -485,15 +562,92 @@ TRADING EXECUTION:
 
     const messages: any[] = [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: userMessage },
     ];
+    if (history.length > 0) {
+      history.forEach((item) => {
+        messages.push({ role: item.role, content: item.content });
+      });
+    }
+    messages.push({ role: 'user', content: userMessage });
 
     type NotionalOrder = { symbol: string; notional: number };
     let maxIterations = 50;
     let iteration = 0;
     let lastChartPayload: string | null = null;
+    let lastNewsPayload: string | null = null;
     let lastNotionalOrder: NotionalOrder | null = null;
     const toolCallLog: Array<{ iteration: number; tool: string; parameters: any; timestamp: string }> = [];
+
+    const normalizeSymbols = (symbols: any): string[] => {
+      if (!symbols) {
+        return [];
+      }
+      if (Array.isArray(symbols)) {
+        return symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean);
+      }
+      return String(symbols)
+        .split(',')
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+    };
+
+    const filterNewsBySymbols = (newsData: any, symbols: string[]) => {
+      const targetSymbols = normalizeSymbols(symbols);
+      if (!newsData || !Array.isArray(newsData.articles)) {
+        return newsData;
+      }
+      if (targetSymbols.length === 0) {
+        return newsData;
+      }
+      const filteredArticles = newsData.articles.filter((article: any) => {
+        const articleSymbols = normalizeSymbols(article?.symbols);
+        if (articleSymbols.length === 0) {
+          return false;
+        }
+        return articleSymbols.some((symbol) => targetSymbols.includes(symbol));
+      });
+      return {
+        ...newsData,
+        articles: filteredArticles,
+        count: filteredArticles.length,
+        symbols: targetSymbols,
+      };
+    };
+
+    const sortAndLimitNews = (newsData: any, limit: number) => {
+      if (!newsData || !Array.isArray(newsData.articles)) {
+        return newsData;
+      }
+      const sorted = [...newsData.articles].sort((a, b) =>
+        String(b?.published_date || '').localeCompare(String(a?.published_date || ''))
+      );
+      const capped = sorted.slice(0, limit);
+      return {
+        ...newsData,
+        articles: capped,
+        count: capped.length,
+      };
+    };
+
+    const summarizeNewsData = (newsData: any): string => {
+      if (!newsData) {
+        return 'News: no data';
+      }
+      if (newsData.error) {
+        return `News error: ${newsData.error}`;
+      }
+      const count = typeof newsData.count === 'number'
+        ? newsData.count
+        : Array.isArray(newsData.articles)
+          ? newsData.articles.length
+          : 0;
+      const symbols = Array.isArray(newsData.symbols) ? newsData.symbols.filter(Boolean) : [];
+      const symbolText = symbols.length > 0 ? ` for ${symbols.join(', ')}` : '';
+      const dateText = newsData.start_date && newsData.end_date
+        ? ` (${newsData.start_date} to ${newsData.end_date})`
+        : '';
+      return `News: ${count} article${count === 1 ? '' : 's'}${symbolText}${dateText}`;
+    };
 
     while (iteration < maxIterations) {
       const requestBody: any = {
@@ -629,6 +783,70 @@ TRADING EXECUTION:
                   console.error('❌ Chart data error:', chartError);
                   result = `Chart data error: ${chartError.message}`;
                 }
+              } else if (toolName === 'get_news') {
+                console.log(`📰 Calling get_news with args:`, JSON.stringify(toolArgs));
+                try {
+                  let newsData: any = await fetchMarketAuxNews({
+                    symbols: toolArgs.symbols,
+                    start: toolArgs.start,
+                    end: toolArgs.end,
+                    limit: 3,
+                  });
+                  if (newsData?.error) {
+                    result = `News error: ${newsData.error}`;
+                  } else {
+                    newsData = filterNewsBySymbols(newsData, toolArgs.symbols);
+                    newsData = sortAndLimitNews(newsData, 10);
+                    lastNewsPayload = JSON.stringify({
+                      type: 'news',
+                      newsData,
+                    });
+                    result = summarizeNewsData(newsData);
+                  }
+                } catch (newsError: any) {
+                  console.error('❌ News error:', newsError);
+                  result = `News error: ${newsError.message}`;
+                }
+              } else if (toolName === 'get_portfolio_news' || toolName === 'get_watchlist_news') {
+                const endpoint = toolName === 'get_portfolio_news' ? 'portfolio' : 'watchlist';
+                console.log(`📰 Calling ${toolName} via /api/news/${endpoint}`);
+                try {
+                  const params = new URLSearchParams();
+                  if (toolArgs.start) {
+                    params.set('start', toolArgs.start);
+                  }
+                  if (toolArgs.end) {
+                    params.set('end', toolArgs.end);
+                  }
+                  if (toolArgs.limit !== undefined) {
+                    params.set('limit', String(toolArgs.limit));
+                  } else {
+                    params.set('limit', '3');
+                  }
+                  params.set('source', 'marketaux');
+                  const url = `http://localhost:3001/api/news/${endpoint}${params.toString() ? `?${params}` : ''}`;
+                  const newsResponse = await fetch(url, { method: 'GET' });
+                  const newsPayload: any = await newsResponse.json();
+                  if (!newsResponse.ok || !newsPayload?.success) {
+                    throw new Error(newsPayload?.error || 'Failed to fetch news');
+                  }
+                  const newsData = newsPayload.data;
+                  if (newsData?.error) {
+                    result = `News error: ${newsData.error}`;
+                  } else {
+                    const requestedSymbols = normalizeSymbols(newsData.symbols);
+                    newsData = filterNewsBySymbols(newsData, requestedSymbols);
+                    newsData = sortAndLimitNews(newsData, 10);
+                    lastNewsPayload = JSON.stringify({
+                      type: 'news',
+                      newsData,
+                    });
+                    result = summarizeNewsData(newsData);
+                  }
+                } catch (newsError: any) {
+                  console.error('❌ News error:', newsError);
+                  result = `News error: ${newsError.message}`;
+                }
               } else {
                 // Call MCP tool for all other tools
                 if (toolName === 'place_stock_order' && toolArgs?.notional && !toolArgs?.quantity) {
@@ -735,12 +953,18 @@ TRADING EXECUTION:
         if (lastChartPayload && !responseContent.includes('"type":"chart"')) {
           responseContent = `${responseContent}\n\n${lastChartPayload}`;
         }
+        if (lastNewsPayload && !responseContent.includes('"type":"news"')) {
+          responseContent = `${responseContent}\n\n${lastNewsPayload}`;
+        }
         responseContent = appendNotionalNote(responseContent, lastNotionalOrder);
         return responseContent;
       }
       
       if (lastChartPayload && !responseContent.includes('"type":"chart"')) {
         responseContent = `${responseContent}\n\n${lastChartPayload}`;
+      }
+      if (lastNewsPayload && !responseContent.includes('"type":"news"')) {
+        responseContent = `${responseContent}\n\n${lastNewsPayload}`;
       }
 
       responseContent = appendNotionalNote(responseContent, lastNotionalOrder);

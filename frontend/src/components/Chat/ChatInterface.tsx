@@ -5,6 +5,10 @@ import { MessageList, Message } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { chatApi } from '@/lib/api';
 
+const CHAT_STORAGE_KEY = 'chat_history_cache_v1';
+const MAX_CACHE_MESSAGES = 100;
+const MAX_CONTEXT_MESSAGES = 3;
+
 export function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -19,6 +23,44 @@ export function ChatInterface() {
     scrollToBottom();
   }, [messages, isLoading]);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const stored = JSON.parse(raw) as Array<{
+        id: string;
+        role: 'user' | 'assistant';
+        content: string;
+        timestamp: string;
+        isError?: boolean;
+      }>;
+      const restored = stored.map((msg) => ({
+        ...msg,
+        timestamp: new Date(msg.timestamp),
+      })) as Message[];
+      setMessages(restored);
+    } catch (error) {
+      console.warn('Failed to restore chat history:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const trimmed = messages.slice(-MAX_CACHE_MESSAGES).map((msg) => ({
+        id: msg.id,
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp.toISOString(),
+        isError: msg.isError,
+      }));
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(trimmed));
+    } catch (error) {
+      console.warn('Failed to cache chat history:', error);
+    }
+  }, [messages]);
+
   const handleSend = async (userMessage: string) => {
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -27,29 +69,61 @@ export function ChatInterface() {
       timestamp: new Date(),
     };
 
+    const history = messages
+      .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
+      .slice(-MAX_CONTEXT_MESSAGES)
+      .map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
 
     try {
-      const result = await chatApi.sendMessage(userMessage);
+      const result = await chatApi.sendMessage(userMessage, history);
 
       let chartData: any = undefined;
+      let newsData: any = undefined;
       let content = result;
 
-      try {
-        const jsonMatch = result.match(/\{[\s\S]*"type"\s*:\s*"chart"[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.type === 'chart' && parsed.chartData) {
-            chartData = parsed.chartData;
-            content = result.replace(jsonMatch[0], '').trim();
-            if (!content) {
-              content = `Here's the market data chart for ${chartData.metadata.symbol}:`;
-            }
-          }
+      const extractPayload = (type: 'chart' | 'news') => {
+        const marker = `{"type":"${type}"`;
+        const idx = content.lastIndexOf(marker);
+        if (idx === -1) {
+          return null;
         }
-      } catch (parseError) {
-        console.log('No chart data found in response');
+        const payloadText = content.slice(idx).trim();
+        try {
+          const parsed = JSON.parse(payloadText);
+          if (parsed?.type === type) {
+            content = content.slice(0, idx).trim();
+            return parsed;
+          }
+        } catch (parseError) {
+          return null;
+        }
+        return null;
+      };
+
+      const chartPayload = extractPayload('chart');
+      if (chartPayload?.chartData) {
+        chartData = chartPayload.chartData;
+      }
+
+      const newsPayload = extractPayload('news');
+      if (newsPayload?.newsData) {
+        newsData = newsPayload.newsData;
+      }
+
+      if (!content) {
+        if (chartData?.metadata?.symbol) {
+          content = `Here's the market data chart for ${chartData.metadata.symbol}:`;
+        } else if (newsData?.symbols?.length) {
+          content = `Here are the latest headlines for ${newsData.symbols.join(', ')}:`;
+        } else if (newsData) {
+          content = 'Here are the latest headlines:';
+        }
       }
 
       const assistantMsg: Message = {
@@ -58,6 +132,7 @@ export function ChatInterface() {
         content: content,
         timestamp: new Date(),
         ...(chartData && { chartData }),
+        ...(newsData && { newsData }),
       };
 
       setMessages((prev) => [...prev, assistantMsg]);

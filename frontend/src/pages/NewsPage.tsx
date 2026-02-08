@@ -44,7 +44,10 @@ export function NewsPage() {
         });
       }
     },
+    staleTime: 300000,
+    cacheTime: 600000,
     refetchInterval: 300000,
+    refetchOnWindowFocus: false,
   });
 
   const availableSymbols = new Set<string>();
