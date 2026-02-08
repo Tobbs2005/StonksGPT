@@ -8,7 +8,7 @@ export function SessionsPage() {
   return (
     <DashboardLayout>
       <SessionsList
-        onStartSession={(session) => navigate(`/sessions/${session.date}/chat`)}
+        onStartSession={(session) => navigate(`/sessions/${session.id}/chat`)}
       />
     </DashboardLayout>
   );

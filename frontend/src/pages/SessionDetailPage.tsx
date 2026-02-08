@@ -6,9 +6,9 @@ import { Button } from '@/components/ui/button';
 import { MessageSquare } from 'lucide-react';
 
 export function SessionDetailPage() {
-  const { date } = useParams<{ date: string }>();
+  const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const session = date ? getSession(date) : undefined;
+  const session = sessionId ? getSession(sessionId) : undefined;
 
   return (
     <DashboardLayout>
@@ -16,7 +16,7 @@ export function SessionDetailPage() {
         <div>
           <h2 className="text-lg font-semibold text-foreground">Session Detail</h2>
           <p className="text-sm text-muted-foreground">
-            {date ? `Session for ${date}` : 'Session not found'}
+            {session ? `Session: ${session.name || session.date}` : 'Session not found'}
           </p>
         </div>
         <Button variant="outline" onClick={() => navigate('/sessions')}>
@@ -26,7 +26,7 @@ export function SessionDetailPage() {
 
       <Card className="max-w-2xl">
         <CardHeader>
-          <CardTitle>{session?.name || date || 'Unknown session'}</CardTitle>
+          <CardTitle>{session?.name || sessionId || 'Unknown session'}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {session ? (
@@ -43,7 +43,7 @@ export function SessionDetailPage() {
                   {new Date(session.createdAt).toLocaleString()}
                 </p>
               </div>
-              <Button onClick={() => navigate(`/sessions/${date}/chat`)}>
+              <Button onClick={() => navigate(`/sessions/${sessionId}/chat`)}>
                 <MessageSquare className="h-4 w-4 mr-2" />
                 Open Chat
               </Button>

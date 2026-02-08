@@ -41,7 +41,7 @@ function App() {
         }
       />
       <Route
-        path="/sessions/:date/chat"
+        path="/sessions/:sessionId/chat"
         element={
           <RequireAuth>
             <SessionChatPage />
@@ -58,7 +58,7 @@ function App() {
       />
       {/* Legacy routes → redirect to Home */}
       <Route path="/chat" element={<Navigate to="/app" replace />} />
-      <Route path="/sessions/:date" element={<Navigate to="/sessions" replace />} />
+      <Route path="/sessions/:sessionId" element={<Navigate to="/sessions" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

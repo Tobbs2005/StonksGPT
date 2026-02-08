@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   TradingSession,
-  ensureTodaySession,
-  getSession,
+  createSession,
   getSessions,
   getTodayDate,
   deleteSession,
@@ -28,9 +27,8 @@ export function SessionsList({ onStartSession }: SessionsListProps) {
   const [deleteTarget, setDeleteTarget] = useState<TradingSession | null>(null);
 
   const handleOpenModal = () => {
-    const existing = getSession(getTodayDate());
-    setName(existing?.name || '');
-    setDescription(existing?.description || '');
+    setName('');
+    setDescription('');
     setShowModal(true);
   };
 
@@ -40,7 +38,7 @@ export function SessionsList({ onStartSession }: SessionsListProps) {
     if (!trimmedName) {
       return;
     }
-    const session = ensureTodaySession({
+    const session = createSession({
       name: trimmedName,
       description: description.trim() || undefined,
     });
@@ -51,7 +49,7 @@ export function SessionsList({ onStartSession }: SessionsListProps) {
 
   const handleConfirmDelete = () => {
     if (!deleteTarget) return;
-    deleteSession(deleteTarget.date);
+    deleteSession(deleteTarget.id);
     const remaining = getSessions();
     setSessions(remaining);
     setDeleteTarget(null);
@@ -62,7 +60,7 @@ export function SessionsList({ onStartSession }: SessionsListProps) {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold">Trading Sessions</h3>
-          <p className="text-sm text-muted-foreground">One session per day.</p>
+          <p className="text-sm text-muted-foreground">Create multiple sessions per day.</p>
         </div>
         <Button onClick={handleOpenModal}>Start New Trading Session</Button>
       </div>
@@ -78,7 +76,7 @@ export function SessionsList({ onStartSession }: SessionsListProps) {
       ) : (
         <div className="space-y-3">
           {sessions.map((session) => (
-            <Card key={session.date} className="border-border/40 hover:shadow-elevated transition-all duration-200 ease-out">
+            <Card key={session.id} className="border-border/40 hover:shadow-elevated transition-all duration-200 ease-out">
               <CardContent className="p-4 flex items-center justify-between">
                 <div className="space-y-1 min-w-0 flex-1">
                   <p className="text-sm font-semibold">
@@ -96,7 +94,7 @@ export function SessionsList({ onStartSession }: SessionsListProps) {
                     variant="ghost"
                     size="sm"
                     className="text-xs"
-                    onClick={() => navigate(`/sessions/${session.date}/chat`)}
+                    onClick={() => navigate(`/sessions/${session.id}/chat`)}
                   >
                     <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
                     Open Chat

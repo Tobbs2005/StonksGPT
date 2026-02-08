@@ -477,30 +477,28 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           </div>
           {sessionId && (
             <div className="flex items-center gap-2">
-              {messages.length > 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2 rounded-full"
-                  onClick={playbackState === 'idle' ? handlePlayback : playbackState === 'loading' ? undefined : handlePlayback}
-                  disabled={isCallOpen || playbackState === 'loading'}
-                >
-                  {playbackState === 'loading' ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : playbackState === 'playing' ? (
-                    <Pause className="h-4 w-4" />
-                  ) : (
-                    <Play className="h-4 w-4" />
-                  )}
-                  {playbackState === 'loading'
-                    ? 'Preparing...'
-                    : playbackState === 'playing'
-                      ? 'Pause'
-                      : playbackState === 'paused'
-                        ? 'Resume'
-                        : 'Playback'}
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 rounded-full"
+                onClick={playbackState === 'idle' ? handlePlayback : playbackState === 'loading' ? undefined : handlePlayback}
+                disabled={isCallOpen || playbackState === 'loading' || messages.length === 0}
+              >
+                {playbackState === 'loading' ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : playbackState === 'playing' ? (
+                  <Pause className="h-4 w-4" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+                {playbackState === 'loading'
+                  ? 'Preparing...'
+                  : playbackState === 'playing'
+                    ? 'Pause'
+                    : playbackState === 'paused'
+                      ? 'Resume'
+                      : 'Playback'}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"

@@ -7,10 +7,9 @@ import { Input } from '@/components/ui/input';
 import { MessageSquare, CalendarDays, ArrowRight, Trash2 } from 'lucide-react';
 import {
   TradingSession,
-  getSession,
   getSessions,
   getTodayDate,
-  ensureTodaySession,
+  createSession,
   deleteSession,
   deleteAllSessions,
 } from '@/lib/sessions';
@@ -27,8 +26,7 @@ export function AppPage() {
   const refreshSessions = () => setSessionTick((t) => t + 1);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _tick = sessionTick; // used to force re-read below
-  const todaySession = getSession(todayDate);
-  const recentSessions = getSessions().slice(0, 3);
+  const recentSessions = getSessions().slice(0, 5);
 
   /* ── Session creation modal ──────────────────────────── */
   const [showModal, setShowModal] = useState(false);
@@ -40,8 +38,8 @@ export function AppPage() {
   const [showClearAll, setShowClearAll] = useState(false);
 
   const handleOpenModal = () => {
-    setName(todaySession?.name || '');
-    setDescription(todaySession?.description || '');
+    setName('');
+    setDescription('');
     setShowModal(true);
   };
 
@@ -49,21 +47,17 @@ export function AppPage() {
     event.preventDefault();
     const trimmedName = name.trim();
     if (!trimmedName) return;
-    const session = ensureTodaySession({
+    const session = createSession({
       name: trimmedName,
       description: description.trim() || undefined,
     });
     setShowModal(false);
-    navigate(`/sessions/${session.date}/chat`);
-  };
-
-  const handleContinue = () => {
-    navigate(`/sessions/${todayDate}/chat`);
+    navigate(`/sessions/${session.id}/chat`);
   };
 
   const handleConfirmDelete = () => {
     if (!deleteTarget) return;
-    deleteSession(deleteTarget.date);
+    deleteSession(deleteTarget.id);
     setDeleteTarget(null);
     refreshSessions();
   };
@@ -87,7 +81,7 @@ export function AppPage() {
           </h2>
           <p className="text-sm text-muted-foreground max-w-md mx-auto">
             Start a trading session to chat with your AI trading assistant.
-            Sessions are saved daily so you can review your decisions and
+            Sessions are saved so you can review your decisions and
             track your progress over time.
           </p>
         </div>
@@ -95,43 +89,13 @@ export function AppPage() {
         {/* ── Action card ──────────────────────────────────── */}
         <Card className="border-border/60">
           <CardContent className="p-6 space-y-4">
-            {todaySession ? (
-              <>
-                <div className="space-y-1">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Today&rsquo;s session
-                  </p>
-                  <p className="text-sm font-semibold text-foreground">
-                    {todaySession.name || todayDate}
-                  </p>
-                  {todaySession.description && (
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                      {todaySession.description}
-                    </p>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
-                  <Button className="flex-1" onClick={handleContinue}>
-                    Continue Today&rsquo;s Session
-                    <ArrowRight className="h-4 w-4 ml-1" />
-                  </Button>
-                  <Button variant="outline" onClick={handleOpenModal}>
-                    Update Session
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="text-sm text-muted-foreground">
-                  You haven&rsquo;t started a session today. Create one to open the
-                  chat workspace.
-                </p>
-                <Button className="w-full" size="lg" onClick={handleOpenModal}>
-                  Start New Session
-                  <ArrowRight className="h-4 w-4 ml-1" />
-                </Button>
-              </>
-            )}
+            <p className="text-sm text-muted-foreground">
+              Create a new session to open the chat workspace.
+            </p>
+            <Button className="w-full" size="lg" onClick={handleOpenModal}>
+              Start New Session
+              <ArrowRight className="h-4 w-4 ml-1" />
+            </Button>
           </CardContent>
         </Card>
 
@@ -155,9 +119,9 @@ export function AppPage() {
             <div className="space-y-2">
               {recentSessions.map((session) => (
                 <Card
-                  key={session.date}
+                  key={session.id}
                   className="border-border/40 hover:shadow-elevated transition-all duration-200 ease-out cursor-pointer"
-                  onClick={() => navigate(`/sessions/${session.date}/chat`)}
+                  onClick={() => navigate(`/sessions/${session.id}/chat`)}
                 >
                   <CardContent className="p-3 flex items-center justify-between">
                     <div className="min-w-0 space-y-0.5">
@@ -173,7 +137,7 @@ export function AppPage() {
                         className="text-xs"
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`/sessions/${session.date}/chat`);
+                          navigate(`/sessions/${session.id}/chat`);
                         }}
                       >
                         Open Chat
@@ -221,13 +185,9 @@ export function AppPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
           <Card className="w-full max-w-lg shadow-modal border-border/30">
             <CardHeader className="space-y-2">
-              <CardTitle>
-                {todaySession ? 'Update Session' : 'Start New Trading Session'}
-              </CardTitle>
+              <CardTitle>Start New Trading Session</CardTitle>
               <p className="text-sm text-muted-foreground">
-                {todaySession
-                  ? `Update your session for ${todayDate}.`
-                  : `Create a session for ${todayDate}.`}
+                Create a session for {todayDate}.
               </p>
             </CardHeader>
             <CardContent>
@@ -261,7 +221,7 @@ export function AppPage() {
                     Cancel
                   </Button>
                   <Button type="submit" disabled={!name.trim()}>
-                    {todaySession ? 'Save & Open Chat' : 'Start Session'}
+                    Start Session
                   </Button>
                 </div>
               </form>

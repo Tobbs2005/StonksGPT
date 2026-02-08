@@ -8,19 +8,19 @@ import { ArrowLeft } from 'lucide-react';
 /**
  * Session-specific chat workspace.
  *
- * Route: /sessions/:date/chat
+ * Route: /sessions/:sessionId/chat
  *
  * Uses the DashboardLayout in `flush` mode for a full-height,
  * borderless chat experience. A small session header sits at
  * the top with the session name and a back link.
  */
 export function SessionChatPage() {
-  const { date } = useParams<{ date: string }>();
+  const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const session = date ? getSession(date) : undefined;
+  const session = sessionId ? getSession(sessionId) : undefined;
 
   // If the session doesn't exist, redirect to Home to start one
-  if (!date || !session) {
+  if (!sessionId || !session) {
     return <Navigate to="/app" replace />;
   }
 
@@ -39,7 +39,7 @@ export function SessionChatPage() {
           </Button>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-foreground truncate">
-              {session.name || date}
+              {session.name || session.date}
             </p>
             {session.description && (
               <p className="text-xs text-muted-foreground truncate">
@@ -48,13 +48,13 @@ export function SessionChatPage() {
             )}
           </div>
           <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
-            {date}
+            {session.date}
           </span>
         </div>
 
         {/* ── Chat workspace (borderless, full area) ─────── */}
         <div className="flex-1 overflow-hidden">
-          <ChatInterface sessionId={date} />
+          <ChatInterface sessionId={sessionId} />
         </div>
       </div>
     </DashboardLayout>
