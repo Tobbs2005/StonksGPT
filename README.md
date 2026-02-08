@@ -1,4 +1,4 @@
-# Alpaca MCP Trading Dashboard
+# StonksGPT
 
 A full-stack trading and portfolio management application that combines real-time market data, AI-assisted insights, and safe trade execution using the Alpaca Trading API and Model Context Protocol (MCP).
 
