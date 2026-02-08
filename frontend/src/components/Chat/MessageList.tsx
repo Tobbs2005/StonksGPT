@@ -4,6 +4,7 @@ import { Bot, ExternalLink, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StockChart, ChartData } from './StockChart';
 import { ComparisonChart } from './ComparisonChart';
+import { MarkdownText } from './MarkdownText';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -88,9 +89,10 @@ export function MessageList({
                       : 'bg-muted text-foreground'
                   )}
                 >
-                  <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">
-                    {message.content}
-                  </p>
+                  <MarkdownText
+                    content={message.content}
+                    className="text-sm break-words"
+                  />
                   {/* ── Comparison charts (2+ tickers) ── */}
                   {message.charts && message.charts.length > 1 && (
                     <div className="mt-4">
