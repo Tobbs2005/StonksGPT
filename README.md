@@ -67,16 +67,15 @@ The system is designed with a clear separation between AI tooling, backend logic
 
 ## Project Structure
 TradeBot/
-├── alpaca-mcp-server/ # Python MCP server
-├── backend/ # Express.js REST API
-│ └── src/
-│ ├── mcp/ # MCP client and tool wrappers
-│ └── routes/ # API route handlers
-└── frontend/ # React application
-└── src/
-├── components/ # UI components
-└── lib/ # API and utility clients
-
+├── alpaca-mcp-server/    # Python MCP server (existing)
+├── backend/              # Express.js REST API
+│   └── src/
+│       ├── mcp/         # MCP client wrapper
+│       └── routes/       # REST route handlers
+└── frontend/            # React application
+    └── src/
+        ├── components/  # React components
+        └── lib/         # API client
 
 ---
 
