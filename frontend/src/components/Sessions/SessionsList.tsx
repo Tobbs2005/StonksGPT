@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { MessageSquare, Headphones, Trash2 } from 'lucide-react';
+import { MessageSquare, Trash2 } from 'lucide-react';
 
 interface SessionsListProps {
   onStartSession: (session: TradingSession) => void;
@@ -100,18 +100,6 @@ export function SessionsList({ onStartSession }: SessionsListProps) {
                   >
                     <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
                     Open Chat
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-xs"
-                    onClick={() => {
-                      // TODO: ElevenLabs session playback / summary
-                    }}
-                    title="Playback session summary"
-                  >
-                    <Headphones className="h-3.5 w-3.5 mr-1.5" />
-                    Playback
                   </Button>
                   <Button
                     variant="ghost"

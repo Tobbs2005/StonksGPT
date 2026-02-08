@@ -1,8 +1,11 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { Phone, Play, Pause, Loader2 } from 'lucide-react';
 import { MessageList, Message } from './MessageList';
 import { MessageInput } from './MessageInput';
+import { CallOverlay, TranscriptLine } from './CallOverlay';
 import { chatApi } from '@/lib/api';
 import { getChartDataCached, prefetchAdjacentTimeframes } from '@/lib/chartCache';
 import {
@@ -24,7 +27,12 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [chartLoadingIds, setChartLoadingIds] = useState<Set<string>>(new Set());
+  const [isCallOpen, setIsCallOpen] = useState(false);
+  const [playbackState, setPlaybackState] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
+  const callStartRef = useRef<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const playbackAudioRef = useRef<HTMLAudioElement | null>(null);
+  const playbackAbortRef = useRef<AbortController | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -335,12 +343,176 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     }
   };
 
+  /* ── Playback: summarize session + TTS ── */
+  const handlePlayback = useCallback(async () => {
+    // If playing → pause
+    if (playbackState === 'playing' && playbackAudioRef.current) {
+      playbackAudioRef.current.pause();
+      setPlaybackState('paused');
+      return;
+    }
+    // If paused → resume
+    if (playbackState === 'paused' && playbackAudioRef.current) {
+      playbackAudioRef.current.play();
+      setPlaybackState('playing');
+      return;
+    }
+    // If loading → ignore
+    if (playbackState === 'loading') return;
+
+    // Start fresh playback — include chat messages + call transcript lines
+    const chatMessages: { role: string; content: string }[] = [];
+    for (const m of messages) {
+      if (m.isError) continue;
+      // Include call transcript lines as individual messages
+      if (m.transcriptData?.lines?.length) {
+        for (const line of m.transcriptData.lines) {
+          if (line.text?.trim()) {
+            chatMessages.push({ role: line.role, content: line.text });
+          }
+        }
+      } else if ((m.role === 'user' || m.role === 'assistant') && m.content) {
+        chatMessages.push({ role: m.role, content: m.content });
+      }
+    }
+
+    if (chatMessages.length === 0) return;
+
+    setPlaybackState('loading');
+    const ac = new AbortController();
+    playbackAbortRef.current = ac;
+
+    try {
+      const summary = await chatApi.summarizeSession(chatMessages, ac.signal);
+      if (ac.signal.aborted) return;
+
+      const blob = await chatApi.getTtsAudio(summary, ac.signal);
+      if (ac.signal.aborted) return;
+
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      playbackAudioRef.current = audio;
+
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        playbackAudioRef.current = null;
+        setPlaybackState('idle');
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        playbackAudioRef.current = null;
+        setPlaybackState('idle');
+      };
+
+      await audio.play();
+      setPlaybackState('playing');
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') {
+        console.error('Playback error:', e);
+      }
+      setPlaybackState('idle');
+    } finally {
+      playbackAbortRef.current = null;
+    }
+  }, [messages, playbackState]);
+
+  const stopPlayback = useCallback(() => {
+    playbackAbortRef.current?.abort();
+    if (playbackAudioRef.current) {
+      playbackAudioRef.current.pause();
+      playbackAudioRef.current = null;
+    }
+    setPlaybackState('idle');
+  }, []);
+
+  /* ── Call overlay handlers ── */
+  const handleStartCall = useCallback(() => {
+    stopPlayback();
+    callStartRef.current = Date.now();
+    setIsCallOpen(true);
+  }, [stopPlayback]);
+
+  const handleEndCall = useCallback(
+    (transcript: TranscriptLine[]) => {
+      setIsCallOpen(false);
+      const durationSec = Math.floor((Date.now() - callStartRef.current) / 1000);
+
+      if (transcript.length > 0) {
+        const transcriptMsg: Message = {
+          id: `call-${Date.now()}`,
+          role: 'assistant',
+          content: `Voice call ended (${Math.floor(durationSec / 60)}m ${durationSec % 60}s). Transcript is available below.`,
+          timestamp: new Date(),
+          transcriptData: {
+            lines: transcript.map((l) => ({
+              role: l.role,
+              text: l.text,
+              timestamp: l.timestamp.toISOString(),
+            })),
+            duration: durationSec,
+            sessionId,
+          },
+        };
+        setMessages((prev) => {
+          const next = [...prev, transcriptMsg];
+          persistMessages(next);
+          return next;
+        });
+      }
+    },
+    [sessionId],
+  );
+
   return (
+    <>
+    {/* Call overlay (portal-like, above everything) */}
+    <CallOverlay isOpen={isCallOpen} onEndCall={handleEndCall} sessionId={sessionId} />
+
     <Card className="h-full w-full flex flex-col border-border/30 bg-card/95 rounded-2xl shadow-elevated overflow-hidden">
       <CardHeader className="border-b border-border/30 px-6 py-4 shrink-0 bg-card/60 backdrop-blur-xl">
-        <div>
-          <CardTitle className="text-lg">StonksGPT</CardTitle>
-          <p className="text-sm text-muted-foreground">Real-time trading assistant</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-lg">StonksGPT</CardTitle>
+            <p className="text-sm text-muted-foreground">Real-time trading assistant</p>
+          </div>
+          {sessionId && (
+            <div className="flex items-center gap-2">
+              {messages.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 rounded-full"
+                  onClick={playbackState === 'idle' ? handlePlayback : playbackState === 'loading' ? undefined : handlePlayback}
+                  disabled={isCallOpen || playbackState === 'loading'}
+                >
+                  {playbackState === 'loading' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : playbackState === 'playing' ? (
+                    <Pause className="h-4 w-4" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
+                  {playbackState === 'loading'
+                    ? 'Preparing...'
+                    : playbackState === 'playing'
+                      ? 'Pause'
+                      : playbackState === 'paused'
+                        ? 'Resume'
+                        : 'Playback'}
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 rounded-full"
+                onClick={handleStartCall}
+                disabled={isCallOpen || playbackState === 'playing' || playbackState === 'loading'}
+              >
+                <Phone className="h-4 w-4" />
+                Call
+              </Button>
+            </div>
+          )}
         </div>
       </CardHeader>
 
@@ -358,8 +530,9 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       </CardContent>
 
       <div className="border-t border-border/30 bg-muted/10 shrink-0">
-        <MessageInput onSend={handleSend} disabled={isLoading} />
+        <MessageInput onSend={handleSend} disabled={isLoading || isCallOpen} />
       </div>
     </Card>
+    </>
   );
 }

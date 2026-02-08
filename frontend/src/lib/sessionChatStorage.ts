@@ -22,6 +22,8 @@ interface StoredMessage {
   /** Multiple charts for comparison view. */
   charts?: any[];
   newsData?: any;
+  /** Voice call transcript data. */
+  transcriptData?: any;
 }
 
 function storageKey(sessionId: string): string {
@@ -106,6 +108,7 @@ export function serializeMessage(msg: {
   chartData?: any;
   charts?: any[];
   newsData?: any;
+  transcriptData?: any;
 }): StoredMessage {
   return {
     id: msg.id,
@@ -116,6 +119,7 @@ export function serializeMessage(msg: {
     ...(msg.chartData ? { chartData: msg.chartData } : {}),
     ...(msg.charts && msg.charts.length > 0 ? { charts: msg.charts } : {}),
     ...(msg.newsData ? { newsData: msg.newsData } : {}),
+    ...(msg.transcriptData ? { transcriptData: msg.transcriptData } : {}),
   };
 }
 
@@ -131,6 +135,7 @@ export function deserializeMessage(stored: StoredMessage): {
   chartData?: any;
   charts?: any[];
   newsData?: any;
+  transcriptData?: any;
 } {
   return {
     ...stored,

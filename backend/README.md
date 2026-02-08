@@ -31,6 +31,11 @@ ALPACA_PAPER_TRADE=True
 LLM_PROVIDER=openai
 OPENAI_API_KEY=your_openai_api_key
 LLM_MODEL=gpt-4
+
+# Required for voice call (STT + TTS)
+ELEVENLABS_API_KEY=your_elevenlabs_api_key
+# Optional: custom voice ID (default: Rachel)
+ELEVENLABS_VOICE_ID=your_voice_id
 ```
 
 The backend will automatically try to load from the root `.env` file first, then fall back to `alpaca-mcp-server/.env` if not found.
@@ -82,7 +87,10 @@ The server will start on `http://localhost:3001`.
 - `DELETE /api/orders/:id` - Cancel order
 - `POST /api/chat/tool` - Generic MCP tool caller
 - `POST /api/chat/message` - Natural language message endpoint (uses LLM if configured)
+- `POST /api/chat/llm` - LLM chat endpoint
 - `GET /api/chat/tools` - List available tools
+- `POST /api/tts` - Text-to-speech (body: `{ text }`, returns audio/mpeg; requires `ELEVENLABS_API_KEY`)
+- `WS /ws/stt` - Real-time speech-to-text WebSocket bridge to ElevenLabs (requires `ELEVENLABS_API_KEY`)
 
 ## Requirements
 

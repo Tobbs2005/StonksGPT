@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getMCPClient } from '../mcp/client';
 import { getLLMService } from '../llm/service';
+import { generateText } from '../llm/llm-provider';
 import { MCPToolCall } from '../types';
 
 const router = Router();
@@ -218,6 +219,69 @@ router.post('/llm', async (req: Request, res: Response) => {
       suggestions,
       details: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
+  }
+});
+
+// Convert raw AI response to conversational, speakable text for TTS
+const TO_SPEAKABLE_SYSTEM = `You convert AI assistant output into a brief, natural spoken summary for text-to-speech. The user will hear this aloud.
+
+Rules:
+- Output ONLY the spoken version, nothing else. No quotes, no preamble.
+- Use conversational, natural English.
+- No JSON, no markdown, no syntax, no raw data, no code.
+- If there are numbers or statistics, round them and say them conversationally (e.g. "up about 5 percent" not "4.73%").
+- If the response contains chart/stock data, summarize the key takeaway in 1-3 sentences (e.g. "Apple stock has been looking good recently with some increase in price over the past week").
+- Keep it concise: typically 1-4 sentences.
+- Sound like a helpful friend, not a data report.
+- If the content is already conversational and short, you may return it with minimal or no changes.`;
+
+router.post('/to-speakable', async (req: Request, res: Response) => {
+  try {
+    const { text } = req.body;
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ success: false, error: 'text is required' });
+    }
+    const { text: speakable } = await generateText(text, { systemPrompt: TO_SPEAKABLE_SYSTEM });
+    res.json({ success: true, data: speakable.trim() });
+  } catch (error: any) {
+    console.error('to-speakable error:', error);
+    res.status(500).json({ success: false, error: error?.message || 'Failed to convert to speakable' });
+  }
+});
+
+// Summarize a full session chat into a conversational spoken recap
+const SUMMARIZE_SESSION_SYSTEM = `You are a friendly financial assistant. You will receive the full chat transcript of a trading session between a user and an AI.
+
+Your job: produce a spoken summary of the entire session as if you're giving a quick recap to the user. This will be read aloud via text-to-speech.
+
+Rules:
+- Output ONLY the spoken summary. No quotes, no preamble, no markdown.
+- Use natural, conversational English as if talking to a friend.
+- Cover the key topics discussed: which stocks/companies, any trades, key insights, price movements, recommendations.
+- Round numbers conversationally (e.g. "about two hundred dollars" not "$198.47").
+- Keep it concise: aim for 30–90 seconds when spoken (roughly 4–12 sentences).
+- Start with something like "Here's a quick recap of our session..." or similar.
+- End with a brief forward-looking note if relevant (e.g. "You might want to keep an eye on...").
+- If the conversation was short or trivial, keep the summary proportionally brief.`;
+
+router.post('/summarize-session', async (req: Request, res: Response) => {
+  try {
+    const { messages } = req.body;
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ success: false, error: 'messages array is required' });
+    }
+    const transcript = messages
+      .filter((m: any) => m.role && m.content)
+      .map((m: any) => `${m.role === 'user' ? 'User' : 'AI'}: ${m.content}`)
+      .join('\n');
+    if (!transcript.trim()) {
+      return res.status(400).json({ success: false, error: 'No valid messages to summarize' });
+    }
+    const { text: summary } = await generateText(transcript, { systemPrompt: SUMMARIZE_SESSION_SYSTEM });
+    res.json({ success: true, data: summary.trim() });
+  } catch (error: any) {
+    console.error('summarize-session error:', error);
+    res.status(500).json({ success: false, error: error?.message || 'Failed to summarize session' });
   }
 });
 

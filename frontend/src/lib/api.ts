@@ -173,7 +173,40 @@ export const chatApi = {
     }
     return response.data.data || [];
   },
+  /** Summarize a full session chat into a spoken recap */
+  summarizeSession: async (messages: { role: string; content: string }[], signal?: AbortSignal): Promise<string> => {
+    const response = await api.post<ApiResponse<string>>('/chat/summarize-session', { messages }, { signal });
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to summarize session');
+    }
+    return response.data.data || '';
+  },
+  /** Convert raw AI response to conversational speakable text for TTS */
+  toSpeakable: async (text: string, signal?: AbortSignal): Promise<string> => {
+    const response = await api.post<ApiResponse<string>>('/chat/to-speakable', { text }, { signal });
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to convert to speakable');
+    }
+    return response.data.data || text;
+  },
   // Get chart data directly
+  /** Fetch TTS audio as blob (audio/mpeg). Used by voice call. */
+  getTtsAudio: async (text: string, signal?: AbortSignal): Promise<Blob> => {
+    const base = import.meta.env.VITE_API_URL || '';
+    const url = base ? `${base.replace(/\/$/, '')}/api/tts` : '/api/tts';
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+      signal,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `TTS failed: ${res.status}`);
+    }
+    return res.blob();
+  },
+
   getChartData: async (symbol: string, timeframe?: string): Promise<any> => {
     const response = await api.post<ApiResponse<any>>('/chart/data', {
       symbol,

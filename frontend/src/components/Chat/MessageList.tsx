@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Bot, ExternalLink, User } from 'lucide-react';
+import { Bot, ExternalLink, User, Download, Phone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StockChart, ChartData } from './StockChart';
 import { ComparisonChart } from './ComparisonChart';
@@ -9,6 +9,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { NewsArticle, NewsResponse } from '@/lib/api';
+
+export interface TranscriptData {
+  lines: { role: 'user' | 'assistant'; text: string; timestamp: string }[];
+  duration: number; // seconds
+  sessionId?: string;
+}
 
 export interface Message {
   id: string;
@@ -20,6 +26,8 @@ export interface Message {
   /** Multiple charts for comparison view (2+ tickers). */
   charts?: ChartData[];
   newsData?: NewsResponse;
+  /** Transcript from a voice call */
+  transcriptData?: TranscriptData;
 }
 
 interface MessageListProps {
@@ -180,6 +188,11 @@ export function MessageList({
                       ))}
                     </div>
                   )}
+                  {/* ── Call transcript card ── */}
+                  {message.transcriptData && (
+                    <TranscriptCard data={message.transcriptData} />
+                  )}
+
                   <p
                     className={cn(
                       'mt-1 text-xs',
@@ -271,5 +284,60 @@ export function MessageList({
         </div>
       )}
     </ScrollArea>
+  );
+}
+
+/* ── Transcript download card ─────────────────────────── */
+function TranscriptCard({ data }: { data: TranscriptData }) {
+  const handleDownload = useCallback(() => {
+    const mins = Math.floor(data.duration / 60);
+    const secs = data.duration % 60;
+    let text = `# StonksGPT Voice Call Transcript\n`;
+    text += `Duration: ${mins}m ${secs}s\n`;
+    if (data.sessionId) text += `Session: ${data.sessionId}\n`;
+    text += `\n---\n\n`;
+    for (const line of data.lines) {
+      const ts = new Date(line.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      text += `[${ts}] ${line.role === 'user' ? 'You' : 'AI'}: ${line.text}\n`;
+    }
+    const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `call-transcript-${data.sessionId || 'session'}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [data]);
+
+  const mins = Math.floor(data.duration / 60);
+  const secs = data.duration % 60;
+
+  return (
+    <div className="mt-3">
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="p-3 flex items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+            <Phone className="h-4 w-4 text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground">Call transcript available</p>
+            <p className="text-xs text-muted-foreground">
+              {data.lines.length} messages &middot; {mins}m {secs}s
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 gap-1.5 text-xs"
+            onClick={handleDownload}
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

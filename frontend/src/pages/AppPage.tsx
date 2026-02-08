@@ -4,7 +4,7 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { MessageSquare, CalendarDays, ArrowRight, Headphones, Trash2 } from 'lucide-react';
+import { MessageSquare, CalendarDays, ArrowRight, Trash2 } from 'lucide-react';
 import {
   TradingSession,
   getSession,
@@ -177,18 +177,6 @@ export function AppPage() {
                         }}
                       >
                         Open Chat
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-xs"
-                        title="Playback session summary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          // TODO: ElevenLabs session playback / summary
-                        }}
-                      >
-                        <Headphones className="h-3.5 w-3.5" />
                       </Button>
                       {DEV_MODE && (
                         <Button
