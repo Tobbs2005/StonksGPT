@@ -8,15 +8,18 @@ import ordersRoutes from './routes/orders';
 import chatRoutes from './routes/chat';
 import chartRoutes from './routes/chart';
 
-// Load .env file - prioritize root directory first
+// Load .env file - prioritize root, then backend, then alpaca-mcp-server
 const rootEnvPath = path.join(__dirname, '../../.env');
 const backendEnvPath = path.join(__dirname, '../.env');
-if (require('fs').existsSync(rootEnvPath)) {
+const alpacaEnvPath = path.join(__dirname, '../../alpaca-mcp-server/.env');
+const fs = require('fs');
+if (fs.existsSync(rootEnvPath)) {
   dotenv.config({ path: rootEnvPath });
-} else if (require('fs').existsSync(backendEnvPath)) {
+} else if (fs.existsSync(backendEnvPath)) {
   dotenv.config({ path: backendEnvPath });
+} else if (fs.existsSync(alpacaEnvPath)) {
+  dotenv.config({ path: alpacaEnvPath });
 } else {
-  // Fallback to default dotenv behavior (looks for .env in current directory)
   dotenv.config();
 }
 

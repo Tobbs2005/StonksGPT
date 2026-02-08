@@ -1,74 +1,54 @@
-import { useState } from 'react';
-import { ChatInterface } from './components/Chat/ChatInterface';
-import { Sidebar } from './components/Sidebar/Sidebar';
-import { NavigationBar } from './components/Navigation/NavigationBar';
-import { Menu, X } from 'lucide-react';
-import { Button } from './components/ui/button';
-import { cn } from './lib/utils';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { RequireAuth } from '@/components/Auth/RequireAuth';
+import { LoginPage } from '@/pages/LoginPage';
+import { AppPage } from '@/pages/AppPage';
+import { SessionsPage } from '@/pages/SessionsPage';
+import { SessionDetailPage } from '@/pages/SessionDetailPage';
+import { ChatPage } from '@/pages/ChatPage';
+import { isAuthed } from '@/lib/auth';
 
 function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-
-  const handleLogout = () => {
-    console.log('Logout clicked');
-    // Add your logout logic here
-  };
-
-  const handleGoHome = () => {
-    setSidebarOpen(true);
-  };
-
   return (
-    <div className="h-screen flex flex-col bg-background">
-      <NavigationBar
-        userName="User"
-        onGoHome={handleGoHome}
+    <Routes>
+      <Route
+        path="/"
+        element={<Navigate to={isAuthed() ? '/app' : '/login'} replace />}
       />
-      <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
-        <aside
-          className={cn(
-            'w-80 shrink-0 border-r border-border bg-sidebar transition-all duration-300 ease-in-out',
-            'lg:translate-x-0 lg:relative',
-            sidebarOpen
-              ? 'translate-x-0 absolute inset-y-0 z-20 h-full'
-              : '-translate-x-full absolute h-full'
-          )}
-        >
-          <div className="h-full p-4 space-y-4 overflow-hidden">
-            <div className="lg:hidden flex justify-end mb-4">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setSidebarOpen(false)}
-              >
-                <X className="h-5 w-5" />
-              </Button>
-            </div>
-            <Sidebar />
-          </div>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 overflow-hidden bg-background">
-          <div className="h-full w-full flex flex-col p-6 gap-6 overflow-hidden">
-            <div className="flex items-center gap-4 lg:hidden">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setSidebarOpen(true)}
-              >
-                <Menu className="h-5 w-5" />
-              </Button>
-              <h2 className="text-lg font-semibold text-foreground">Chat</h2>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <ChatInterface />
-            </div>
-          </div>
-        </main>
-      </div>
-    </div>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/app"
+        element={
+          <RequireAuth>
+            <AppPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/sessions"
+        element={
+          <RequireAuth>
+            <SessionsPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/sessions/:date"
+        element={
+          <RequireAuth>
+            <SessionDetailPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/chat"
+        element={
+          <RequireAuth>
+            <ChatPage />
+          </RequireAuth>
+        }
+      />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }
 

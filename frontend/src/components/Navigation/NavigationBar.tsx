@@ -1,13 +1,14 @@
-import { Home, Moon, Sun } from 'lucide-react';
+import { Home, LogOut, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/contexts/theme-context';
 
 interface NavigationBarProps {
   userName: string;
   onGoHome: () => void;
+  onLogout?: () => void;
 }
 
-export function NavigationBar({ userName, onGoHome }: NavigationBarProps) {
+export function NavigationBar({ userName, onGoHome, onLogout }: NavigationBarProps) {
   const { theme, setTheme } = useTheme();
 
   const toggleTheme = () => {
@@ -64,6 +65,19 @@ export function NavigationBar({ userName, onGoHome }: NavigationBarProps) {
               <Home className="h-4 w-4" />
               <span className="hidden sm:inline">Home</span>
             </Button>
+
+            {onLogout && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onLogout}
+                className="gap-2"
+                title="Log out"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline">Logout</span>
+              </Button>
+            )}
           </div>
         </div>
       </div>
