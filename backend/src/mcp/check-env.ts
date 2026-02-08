@@ -73,6 +73,9 @@ export function checkEnvironment(): { valid: boolean; errors: string[] } {
             if (key.trim() === 'FINNHUB_API_KEY' && !process.env.FINNHUB_API_KEY) {
               process.env.FINNHUB_API_KEY = value;
             }
+            if (key.trim() === 'MARKETAUX_API_KEY' && !process.env.MARKETAUX_API_KEY) {
+              process.env.MARKETAUX_API_KEY = value;
+            }
           }
         }
         if (loadedKeys > 0) {

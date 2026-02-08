@@ -54,7 +54,7 @@ export function SessionChatPage() {
 
         {/* ── Chat workspace (borderless, full area) ─────── */}
         <div className="flex-1 overflow-hidden">
-          <ChatInterface />
+          <ChatInterface sessionId={date} />
         </div>
       </div>
     </DashboardLayout>

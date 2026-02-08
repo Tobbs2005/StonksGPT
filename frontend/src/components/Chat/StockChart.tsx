@@ -9,6 +9,8 @@ import {
   LineSeries,
 } from 'lightweight-charts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export interface ChartData {
   chartType: 'line' | 'candlestick';
@@ -31,11 +33,19 @@ interface StockChartProps {
   chartData: ChartData;
   onTimeframeChange?: (timeframe: string) => void;
   isLoading?: boolean;
+  /**
+   * Compact mode: renders the chart without the Card wrapper and without
+   * timeframe/chart-type controls. Used inside ComparisonChart where
+   * controls are shared across panels.
+   */
+  compact?: boolean;
+  /** Override the chart height (default 400px, compact default 320px). */
+  height?: number;
 }
 
 const TIMEFRAMES = ['1d', '5d', '1mo', '6mo', '1y', '5y'] as const;
 
-export function StockChart({ chartData, onTimeframeChange, isLoading }: StockChartProps) {
+export function StockChart({ chartData, onTimeframeChange, isLoading, compact, height }: StockChartProps) {
   const [chartType, setChartType] = useState<'line' | 'candlestick'>(chartData.chartType);
   const [timeframe, setTimeframe] = useState<string>(chartData.metadata.timeframe);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
@@ -196,6 +206,42 @@ export function StockChart({ chartData, onTimeframeChange, isLoading }: StockCha
     onTimeframeChange?.(nextTimeframe);
   };
 
+  const chartHeight = height ?? (compact ? 320 : 400);
+
+  // ── Compact mode: bare chart with small label, no Card / controls ──
+  if (compact) {
+    return (
+      <div className="w-full">
+        <div className="flex items-baseline justify-between mb-1.5 px-0.5">
+          <p className="text-sm font-semibold text-foreground">
+            {chartData.metadata.symbol}
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            {format(parseISO(chartData.metadata.lastUpdate), 'MMM dd, HH:mm')}
+          </p>
+        </div>
+        <div className="relative w-full" style={{ height: `${chartHeight}px` }}>
+          <div
+            ref={chartContainerRef}
+            className={cn(
+              'h-full w-full transition-opacity duration-200',
+              isLoading && 'opacity-40',
+            )}
+          />
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="flex items-center gap-2 rounded-lg bg-background/80 backdrop-blur-sm px-3 py-1.5 shadow-elevated">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Loading…</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Standard mode: full Card with header + controls ──
   return (
     <Card className="w-full my-4">
       <CardHeader className="pb-3">
@@ -217,28 +263,46 @@ export function StockChart({ chartData, onTimeframeChange, isLoading }: StockCha
               <option value="candlestick">Candlestick</option>
               <option value="line">Line</option>
             </select>
-            <select
-              className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-              value={timeframe}
-              onChange={(event) => handleTimeframeChange(event.target.value)}
-              disabled={isLoading}
-            >
+            <div className="flex items-center gap-0.5 rounded-lg border border-input bg-muted/40 p-0.5">
               {TIMEFRAMES.map((frame) => (
-                <option key={frame} value={frame}>
+                <button
+                  key={frame}
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => handleTimeframeChange(frame)}
+                  className={cn(
+                    'px-2.5 py-1 text-xs font-medium rounded-md transition-all duration-150',
+                    timeframe === frame
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground',
+                    isLoading && 'opacity-50 cursor-not-allowed',
+                  )}
+                >
                   {frame.toUpperCase()}
-                </option>
+                </button>
               ))}
-            </select>
+            </div>
           </div>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="w-full" style={{ height: '400px' }}>
-          <div ref={chartContainerRef} className="h-full w-full" />
+        <div className="relative w-full" style={{ height: `${chartHeight}px` }}>
+          <div
+            ref={chartContainerRef}
+            className={cn(
+              'h-full w-full transition-opacity duration-200',
+              isLoading && 'opacity-40',
+            )}
+          />
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="flex items-center gap-2 rounded-lg bg-background/80 backdrop-blur-sm px-4 py-2 shadow-elevated">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Loading data…</span>
+              </div>
+            </div>
+          )}
         </div>
-        {isLoading && (
-          <p className="mt-2 text-xs text-muted-foreground">Updating chart...</p>
-        )}
       </CardContent>
     </Card>
   );

@@ -4,12 +4,23 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { MessageList, Message } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { chatApi } from '@/lib/api';
+import { getChartDataCached, prefetchAdjacentTimeframes } from '@/lib/chartCache';
+import {
+  getSessionMessages,
+  setSessionMessages,
+  appendSessionMessage,
+  serializeMessage,
+  deserializeMessage,
+} from '@/lib/sessionChatStorage';
 
-const CHAT_STORAGE_KEY = 'chat_history_cache_v1';
-const MAX_CACHE_MESSAGES = 100;
 const MAX_CONTEXT_MESSAGES = 3;
 
-export function ChatInterface() {
+interface ChatInterfaceProps {
+  /** When provided, chat is scoped to this session (per-session persistence). */
+  sessionId?: string;
+}
+
+export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [chartLoadingIds, setChartLoadingIds] = useState<Set<string>>(new Set());
@@ -23,43 +34,28 @@ export function ChatInterface() {
     scrollToBottom();
   }, [messages, isLoading]);
 
+  // ── Load messages on mount (per-session when sessionId is provided) ──
   useEffect(() => {
+    if (!sessionId) return;
     try {
-      const raw = localStorage.getItem(CHAT_STORAGE_KEY);
-      if (!raw) {
-        return;
+      const stored = getSessionMessages(sessionId);
+      if (stored.length > 0) {
+        setMessages(stored.map(deserializeMessage));
       }
-      const stored = JSON.parse(raw) as Array<{
-        id: string;
-        role: 'user' | 'assistant';
-        content: string;
-        timestamp: string;
-        isError?: boolean;
-      }>;
-      const restored = stored.map((msg) => ({
-        ...msg,
-        timestamp: new Date(msg.timestamp),
-      })) as Message[];
-      setMessages(restored);
     } catch (error) {
-      console.warn('Failed to restore chat history:', error);
+      console.warn('Failed to restore session chat history:', error);
     }
-  }, []);
+  }, [sessionId]);
 
-  useEffect(() => {
+  // ── Persist helper (writes to per-session storage) ──
+  const persistMessages = (msgs: Message[]) => {
+    if (!sessionId) return;
     try {
-      const trimmed = messages.slice(-MAX_CACHE_MESSAGES).map((msg) => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        timestamp: msg.timestamp.toISOString(),
-        isError: msg.isError,
-      }));
-      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(trimmed));
+      setSessionMessages(sessionId, msgs.map(serializeMessage));
     } catch (error) {
-      console.warn('Failed to cache chat history:', error);
+      console.warn('Failed to persist session chat:', error);
     }
-  }, [messages]);
+  };
 
   const handleSend = async (userMessage: string) => {
     const userMsg: Message = {
@@ -77,48 +73,82 @@ export function ChatInterface() {
         content: msg.content,
       }));
 
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((prev) => {
+      const next = [...prev, userMsg];
+      // Persist user message immediately
+      if (sessionId) {
+        appendSessionMessage(sessionId, serializeMessage(userMsg));
+      }
+      return next;
+    });
     setIsLoading(true);
 
     try {
       const result = await chatApi.sendMessage(userMessage, history);
 
-      let chartData: any = undefined;
       let newsData: any = undefined;
       let content = result;
 
-      const extractPayload = (type: 'chart' | 'news') => {
-        const marker = `{"type":"${type}"`;
-        const idx = content.lastIndexOf(marker);
-        if (idx === -1) {
-          return null;
-        }
-        const payloadText = content.slice(idx).trim();
+      // ── Extract ALL chart payloads (supports multi-ticker comparison) ──
+      const chartMarker = '{"type":"chart"';
+      const allCharts: any[] = [];
+      let searchFrom = 0;
+      // Collect every chart JSON blob from the response
+      while (true) {
+        const idx = content.indexOf(chartMarker, searchFrom);
+        if (idx === -1) break;
+        // Find the end of this JSON object by parsing from the marker
+        const remaining = content.slice(idx);
         try {
-          const parsed = JSON.parse(payloadText);
-          if (parsed?.type === type) {
-            content = content.slice(0, idx).trim();
-            return parsed;
+          const parsed = JSON.parse(remaining.split('\n')[0].trim());
+          if (parsed?.type === 'chart' && parsed.chartData) {
+            allCharts.push(parsed.chartData);
           }
-        } catch (parseError) {
-          return null;
+        } catch {
+          // Try parsing the full remaining (in case no newline separator)
+          try {
+            const parsed = JSON.parse(remaining.trim());
+            if (parsed?.type === 'chart' && parsed.chartData) {
+              allCharts.push(parsed.chartData);
+            }
+          } catch {
+            // skip malformed
+          }
         }
-        return null;
-      };
-
-      const chartPayload = extractPayload('chart');
-      if (chartPayload?.chartData) {
-        chartData = chartPayload.chartData;
+        searchFrom = idx + 1;
+      }
+      // Strip all chart payloads from the text content
+      if (allCharts.length > 0) {
+        let cleaned = content;
+        let stripIdx = cleaned.indexOf(chartMarker);
+        if (stripIdx !== -1) {
+          cleaned = cleaned.slice(0, stripIdx).trim();
+        }
+        content = cleaned;
       }
 
-      const newsPayload = extractPayload('news');
-      if (newsPayload?.newsData) {
-        newsData = newsPayload.newsData;
+      // ── Extract news payload (single, last occurrence) ──
+      const newsMarker = '{"type":"news"';
+      const newsIdx = content.lastIndexOf(newsMarker);
+      if (newsIdx !== -1) {
+        const newsText = content.slice(newsIdx).trim();
+        try {
+          const parsed = JSON.parse(newsText);
+          if (parsed?.type === 'news' && parsed.newsData) {
+            newsData = parsed.newsData;
+            content = content.slice(0, newsIdx).trim();
+          }
+        } catch {
+          // ignore
+        }
       }
 
       if (!content) {
-        if (chartData?.metadata?.symbol) {
-          content = `Here's the market data chart for ${chartData.metadata.symbol}:`;
+        if (allCharts.length > 1) {
+          const symbols = allCharts.map((c: any) => c.metadata?.symbol).filter(Boolean);
+          content = `Here's the comparison for ${symbols.join(' vs ')}:`;
+        } else if (allCharts.length === 1) {
+          content = `Here's the market data chart for ${allCharts[0].metadata?.symbol || 'the stock'}:`;
         } else if (newsData?.symbols?.length) {
           content = `Here are the latest headlines for ${newsData.symbols.join(', ')}:`;
         } else if (newsData) {
@@ -131,11 +161,17 @@ export function ChatInterface() {
         role: 'assistant',
         content: content,
         timestamp: new Date(),
-        ...(chartData && { chartData }),
+        // Single chart → chartData (backward compat), multi → charts array
+        ...(allCharts.length === 1 && { chartData: allCharts[0] }),
+        ...(allCharts.length > 1 && { charts: allCharts }),
         ...(newsData && { newsData }),
       };
 
-      setMessages((prev) => [...prev, assistantMsg]);
+      setMessages((prev) => {
+        const next = [...prev, assistantMsg];
+        persistMessages(next);
+        return next;
+      });
     } catch (error: any) {
       let errorContent = '';
       let suggestions: string[] = [];
@@ -175,9 +211,79 @@ export function ChatInterface() {
         timestamp: new Date(),
         isError: true,
       };
-      setMessages((prev) => [...prev, errorMsg]);
+
+      setMessages((prev) => {
+        const next = [...prev, errorMsg];
+        persistMessages(next);
+        return next;
+      });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // ── Comparison: update ALL charts in a message to the new timeframe ──
+  const handleComparisonTimeframeChange = async (messageId: string, symbols: string[], timeframe: string) => {
+    if (!symbols.length) return;
+    setChartLoadingIds((prev) => {
+      const next = new Set(prev);
+      next.add(messageId);
+      return next;
+    });
+
+    try {
+      // Fetch all symbols in parallel using the cache
+      const results = await Promise.allSettled(
+        symbols.map((sym) => getChartDataCached(sym, timeframe)),
+      );
+
+      const updatedCharts: any[] = [];
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (r.status === 'fulfilled') {
+          updatedCharts.push(r.value);
+        } else {
+          // Keep the old chart data for this symbol (don't break the panel)
+          updatedCharts.push(null);
+        }
+      }
+
+      setMessages((prev) => {
+        const next = prev.map((msg) => {
+          if (msg.id !== messageId || !msg.charts) return msg;
+          const merged = msg.charts.map((old, i) => updatedCharts[i] || old);
+          return { ...msg, charts: merged };
+        });
+        persistMessages(next);
+        return next;
+      });
+
+      // Prefetch adjacent timeframes for all symbols
+      for (const sym of symbols) {
+        prefetchAdjacentTimeframes(sym, timeframe);
+      }
+    } catch (error: any) {
+      const errorContent = error.message || 'Failed to refresh chart data';
+      setMessages((prev) => {
+        const next = [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant' as const,
+            content: `**Error**: ${errorContent}`,
+            timestamp: new Date(),
+            isError: true,
+          },
+        ];
+        persistMessages(next);
+        return next;
+      });
+    } finally {
+      setChartLoadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(messageId);
+        return next;
+      });
     }
   };
 
@@ -192,29 +298,34 @@ export function ChatInterface() {
     });
 
     try {
-      const chartData = await chatApi.getChartData(symbol, timeframe);
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === messageId
-            ? {
-                ...msg,
-                chartData,
-              }
-            : msg
-        )
-      );
+      // Use the client-side cache (deduplicates in-flight requests)
+      const chartData = await getChartDataCached(symbol, timeframe);
+      setMessages((prev) => {
+        const next = prev.map((msg) =>
+          msg.id === messageId ? { ...msg, chartData } : msg
+        );
+        persistMessages(next);
+        return next;
+      });
+
+      // Prefetch adjacent timeframes on idle so the next switch is instant
+      prefetchAdjacentTimeframes(symbol, timeframe);
     } catch (error: any) {
       const errorContent = error.message || 'Failed to refresh chart data';
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: `**Error**: ${errorContent}`,
-          timestamp: new Date(),
-          isError: true,
-        },
-      ]);
+      setMessages((prev) => {
+        const next = [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant' as const,
+            content: `**Error**: ${errorContent}`,
+            timestamp: new Date(),
+            isError: true,
+          },
+        ];
+        persistMessages(next);
+        return next;
+      });
     } finally {
       setChartLoadingIds((prev) => {
         const next = new Set(prev);
@@ -240,6 +351,7 @@ export function ChatInterface() {
             isLoading={isLoading}
             chartLoadingIds={chartLoadingIds}
             onChartTimeframeChange={handleChartTimeframeChange}
+            onComparisonTimeframeChange={handleComparisonTimeframeChange}
           />
           <div ref={messagesEndRef} />
         </ScrollArea>

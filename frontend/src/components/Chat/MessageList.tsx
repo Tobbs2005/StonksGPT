@@ -3,6 +3,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Bot, ExternalLink, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StockChart, ChartData } from './StockChart';
+import { ComparisonChart } from './ComparisonChart';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,6 +16,8 @@ export interface Message {
   timestamp: Date;
   isError?: boolean;
   chartData?: ChartData;
+  /** Multiple charts for comparison view (2+ tickers). */
+  charts?: ChartData[];
   newsData?: NewsResponse;
 }
 
@@ -23,6 +26,7 @@ interface MessageListProps {
   isLoading?: boolean;
   chartLoadingIds?: Set<string>;
   onChartTimeframeChange?: (messageId: string, symbol: string, timeframe: string) => void;
+  onComparisonTimeframeChange?: (messageId: string, symbols: string[], timeframe: string) => void;
 }
 
 export function MessageList({
@@ -30,6 +34,7 @@ export function MessageList({
   isLoading = false,
   chartLoadingIds,
   onChartTimeframeChange,
+  onComparisonTimeframeChange,
 }: MessageListProps) {
   const [activeArticle, setActiveArticle] = useState<NewsArticle | null>(null);
 
@@ -86,7 +91,24 @@ export function MessageList({
                   <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">
                     {message.content}
                   </p>
-                  {message.chartData && (
+                  {/* ── Comparison charts (2+ tickers) ── */}
+                  {message.charts && message.charts.length > 1 && (
+                    <div className="mt-4">
+                      <ComparisonChart
+                        charts={message.charts}
+                        isLoading={chartLoadingIds?.has(message.id)}
+                        onTimeframeChange={(symbols, timeframe) => {
+                          onComparisonTimeframeChange?.(
+                            message.id,
+                            symbols,
+                            timeframe,
+                          );
+                        }}
+                      />
+                    </div>
+                  )}
+                  {/* ── Single chart ── */}
+                  {message.chartData && !message.charts?.length && (
                     <div className="mt-4">
                       <StockChart
                         chartData={message.chartData}

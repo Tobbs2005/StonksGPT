@@ -25,9 +25,13 @@ export interface MarketDataPoint {
  * Convert timeframe string to yahoo-finance2 interval and period
  */
 function parseTimeframe(timeframe: string): { alpacaTimeframe: string; days: number; hours: number; minutes: number } {
+  // NOTE: Intraday lookback windows are wider than the label implies so we
+  // always capture the most recent trading session even on weekends/holidays.
+  // "1d" uses 4 calendar days (covers Sat/Sun/Mon-holiday edge case).
+  // "5d" uses 9 calendar days (covers a full week + weekend padding).
   const mapping: Record<string, { alpacaTimeframe: string; days: number; hours: number; minutes: number }> = {
-    '1d': { alpacaTimeframe: '5Min', days: 1, hours: 0, minutes: 0 },
-    '5d': { alpacaTimeframe: '15Min', days: 5, hours: 0, minutes: 0 },
+    '1d': { alpacaTimeframe: '5Min', days: 4, hours: 0, minutes: 0 },
+    '5d': { alpacaTimeframe: '15Min', days: 9, hours: 0, minutes: 0 },
     '1mo': { alpacaTimeframe: '1Day', days: 30, hours: 0, minutes: 0 },
     '6mo': { alpacaTimeframe: '1Day', days: 180, hours: 0, minutes: 0 },
     '1y': { alpacaTimeframe: '1Day', days: 365, hours: 0, minutes: 0 },

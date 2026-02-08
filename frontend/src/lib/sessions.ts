@@ -1,4 +1,5 @@
 import { format } from 'date-fns';
+import { clearSessionMessages, clearAllSessionMessages } from './sessionChatStorage';
 
 export interface TradingSession {
   date: string; // YYYY-MM-DD
@@ -44,10 +45,12 @@ export function getTodayDate(): string {
 export function deleteSession(date: string): void {
   const sessions = readSessions().filter((s) => s.date !== date);
   writeSessions(sessions);
+  clearSessionMessages(date);
 }
 
 export function deleteAllSessions(): void {
   writeSessions([]);
+  clearAllSessionMessages();
 }
 
 export function ensureTodaySession(details?: { name?: string; description?: string }): TradingSession {

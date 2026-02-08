@@ -317,30 +317,10 @@ TRADING EXECUTION:
           },
         ];
 
-        // Add web search MCP servers if available
-        // These provide web search capabilities for symbol resolution and research
-        const webSearchServers: string[] = [];
-        
-        // Check for web search MCP server environment variables
-        if (process.env.ENABLE_WEB_SEARCH_MCP !== 'false') {
-          // Add Exa semantic search (if configured)
-          if (process.env.EXA_API_KEY) {
-            webSearchServers.push('tsion/exa');
-          }
-          
-          // Add Brave Search (if configured)
-          if (process.env.BRAVE_API_KEY) {
-            webSearchServers.push('windsor/brave-search-mcp');
-          }
-          
-          // If no specific API keys, try adding Brave Search anyway (may work without key)
-          if (webSearchServers.length === 0) {
-            webSearchServers.push('windsor/brave-search-mcp');
-          }
-        }
-
-        // Add web search servers to MCP servers list
-        mcpServers.push(...webSearchServers);
+        // Web search is handled through the dedicated web_search / search_stock_symbols
+        // tools in web-search.ts (which has its own rate limiter for Brave Search).
+        // Do NOT add Brave/Exa MCP servers here — it would bypass the rate limiter
+        // and double the request volume to the search API.
 
         const historyText = history.length
           ? `RECENT CONTEXT:\n${history
@@ -573,7 +553,7 @@ TRADING EXECUTION:
     type NotionalOrder = { symbol: string; notional: number };
     let maxIterations = 50;
     let iteration = 0;
-    let lastChartPayload: string | null = null;
+    const chartPayloads: string[] = [];
     let lastNewsPayload: string | null = null;
     let lastNotionalOrder: NotionalOrder | null = null;
     const toolCallLog: Array<{ iteration: number; tool: string; parameters: any; timestamp: string }> = [];
@@ -774,7 +754,7 @@ TRADING EXECUTION:
                       type: 'chart',
                       chartData: chartDataResponse.data,
                     });
-                    lastChartPayload = result;
+                    chartPayloads.push(result);
                     console.log(`✅ Chart data fetched: ${chartDataResponse.data.chartType} chart with ${chartDataResponse.data.data.length} points`);
                   } else {
                     throw new Error('Invalid chart data response');
@@ -950,8 +930,8 @@ TRADING EXECUTION:
       };
 
       if (hasToolCalls && responseContent) {
-        if (lastChartPayload && !responseContent.includes('"type":"chart"')) {
-          responseContent = `${responseContent}\n\n${lastChartPayload}`;
+        if (chartPayloads.length > 0 && !responseContent.includes('"type":"chart"')) {
+          responseContent = `${responseContent}\n\n${chartPayloads.join('\n')}`;
         }
         if (lastNewsPayload && !responseContent.includes('"type":"news"')) {
           responseContent = `${responseContent}\n\n${lastNewsPayload}`;
@@ -960,8 +940,8 @@ TRADING EXECUTION:
         return responseContent;
       }
       
-      if (lastChartPayload && !responseContent.includes('"type":"chart"')) {
-        responseContent = `${responseContent}\n\n${lastChartPayload}`;
+      if (chartPayloads.length > 0 && !responseContent.includes('"type":"chart"')) {
+        responseContent = `${responseContent}\n\n${chartPayloads.join('\n')}`;
       }
       if (lastNewsPayload && !responseContent.includes('"type":"news"')) {
         responseContent = `${responseContent}\n\n${lastNewsPayload}`;
