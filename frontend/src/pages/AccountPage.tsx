@@ -4,12 +4,12 @@ import { PositionsList } from '@/components/Sidebar/PositionsList';
 import { PendingOrdersList } from '@/components/Sidebar/PendingOrdersList';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-export function AppPage() {
+export function AccountPage() {
   return (
     <DashboardLayout>
       <div>
-        <h2 className="text-lg font-semibold text-foreground">Dashboard</h2>
-        <p className="text-sm text-muted-foreground">Overview of your trading activity.</p>
+        <h2 className="text-lg font-semibold text-foreground">Account</h2>
+        <p className="text-sm text-muted-foreground">Your account details, positions, and orders.</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">

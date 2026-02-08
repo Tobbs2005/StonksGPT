@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { RequireAuth } from '@/components/Auth/RequireAuth';
 import { LoginPage } from '@/pages/LoginPage';
 import { AppPage } from '@/pages/AppPage';
+import { AccountPage } from '@/pages/AccountPage';
 import { SessionsPage } from '@/pages/SessionsPage';
 import { SessionDetailPage } from '@/pages/SessionDetailPage';
 import { ChatPage } from '@/pages/ChatPage';
@@ -21,6 +22,14 @@ function App() {
         element={
           <RequireAuth>
             <AppPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/account"
+        element={
+          <RequireAuth>
+            <AccountPage />
           </RequireAuth>
         }
       />

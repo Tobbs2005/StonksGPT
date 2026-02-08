@@ -49,6 +49,7 @@ export class MCPClient {
         ALPACA_API_KEY: apiKey,
         ALPACA_SECRET_KEY: secretKey,
         ALPACA_PAPER_TRADE: process.env.ALPACA_PAPER_TRADE || 'True',
+        FINNHUB_API_KEY: process.env.FINNHUB_API_KEY,
       };
       
       // Try to use local server with uv run (faster than uvx --from)
