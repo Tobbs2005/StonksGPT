@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ordersApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { X } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 
 /* ── types & parsing ─────────────────────────────────────── */
 
@@ -14,6 +14,7 @@ interface ParsedOrder {
   id?: string;
   side?: string;
   quantity?: string;
+  qty?: string;
   type?: string;
   status?: string;
   time_in_force?: string;
@@ -59,50 +60,110 @@ function tifLabel(value?: string): string {
   return value.toUpperCase();
 }
 
+const QUERY_KEY = ['orders', 'open'] as const;
+
 /* ── component ────────────────────────────────────────────── */
 
 export function PendingOrdersList() {
   const [cancelingIds, setCancelingIds] = useState<Set<string>>(new Set());
+  const [errorIds, setErrorIds] = useState<Set<string>>(new Set());
   const [confirmCancelAll, setConfirmCancelAll] = useState(false);
   const [cancelingAll, setCancelingAll] = useState(false);
+  const [cancelAllError, setCancelAllError] = useState(false);
   const queryClient = useQueryClient();
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['orders', 'open'],
+    queryKey: QUERY_KEY,
     queryFn: () => ordersApi.getOrders({ status: 'open', limit: 10 }),
     refetchInterval: 30000,
   });
 
   const orders = data ? parseOrders(data) : [];
 
+  // Clean up cancelingIds once the backend confirms orders are gone.
+  // When a refetch no longer includes a canceled order ID, we can
+  // safely drop it from cancelingIds.
+  useEffect(() => {
+    if (cancelingIds.size === 0) return;
+    const currentIds = new Set(orders.map((o) => o.id).filter(Boolean));
+    const stale = [...cancelingIds].filter((id) => !currentIds.has(id));
+    if (stale.length > 0) {
+      setCancelingIds((prev) => {
+        const next = new Set(prev);
+        stale.forEach((id) => next.delete(id));
+        return next;
+      });
+    }
+  }, [orders, cancelingIds]);
+
   /* ── actions ─────────────────────────────────────────── */
 
   const handleCancel = async (orderId?: string) => {
     if (!orderId) return;
+
+    // Clear any previous error for this order
+    setErrorIds((prev) => {
+      if (!prev.has(orderId)) return prev;
+      const next = new Set(prev);
+      next.delete(orderId);
+      return next;
+    });
+
+    // Mark as canceling — row hides immediately
     setCancelingIds((prev) => new Set(prev).add(orderId));
+
     try {
       await ordersApi.cancelOrder(orderId);
-      await queryClient.invalidateQueries({ queryKey: ['orders', 'open'] });
+      // Refetch the list. The order may still appear briefly due to
+      // backend propagation delay, but cancelingIds keeps it hidden
+      // until the cleanup effect removes the stale ID.
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     } catch (err) {
       console.error('Failed to cancel order', err);
-    } finally {
+      // Rollback: un-hide the row so user can retry
       setCancelingIds((prev) => {
         const next = new Set(prev);
         next.delete(orderId);
         return next;
       });
+      // Surface error inline on that row
+      setErrorIds((prev) => new Set(prev).add(orderId));
+      // Auto-clear error after 4 seconds
+      setTimeout(() => {
+        setErrorIds((prev) => {
+          const next = new Set(prev);
+          next.delete(orderId);
+          return next;
+        });
+      }, 4000);
     }
   };
 
   const handleCancelAll = async () => {
     const ids = orders.map((o) => o.id).filter(Boolean) as string[];
     if (ids.length === 0) return;
+
     setCancelingAll(true);
+    setCancelAllError(false);
+    // Mark every order as canceling — all rows hide immediately
+    setCancelingIds(new Set(ids));
+
     try {
-      await Promise.allSettled(ids.map((id) => ordersApi.cancelOrder(id)));
-      await queryClient.invalidateQueries({ queryKey: ['orders', 'open'] });
+      const results = await Promise.allSettled(ids.map((id) => ordersApi.cancelOrder(id)));
+      const failures = results.filter((r) => r.status === 'rejected');
+      if (failures.length > 0) {
+        console.error(`${failures.length} order(s) failed to cancel`);
+        setCancelAllError(true);
+        setTimeout(() => setCancelAllError(false), 4000);
+      }
+      // Refetch; cancelingIds keeps rows hidden through propagation delay
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     } catch (err) {
       console.error('Failed to cancel all orders', err);
+      setCancelAllError(true);
+      setTimeout(() => setCancelAllError(false), 4000);
+      // Rollback: un-hide all rows
+      setCancelingIds(new Set());
     } finally {
       setCancelingAll(false);
       setConfirmCancelAll(false);
@@ -119,13 +180,26 @@ export function PendingOrdersList() {
     return <p className="text-sm text-destructive py-2">Error loading orders</p>;
   }
 
-  if (orders.length === 0) {
+  // Filter out orders currently being canceled so they disappear immediately
+  const visibleOrders = orders.filter((o) => !o.id || !cancelingIds.has(o.id));
+
+  if (visibleOrders.length === 0 && cancelingIds.size === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-center">
         <p className="text-sm text-muted-foreground">No open orders</p>
         <p className="text-xs text-muted-foreground/60 mt-1">
           New orders will appear here automatically
         </p>
+      </div>
+    );
+  }
+
+  // Show a slim "cancelling" placeholder when all orders have been hidden but cancel is in-flight
+  if (visibleOrders.length === 0 && cancelingIds.size > 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        <p className="text-xs text-muted-foreground">Cancelling orders&hellip;</p>
       </div>
     );
   }
@@ -138,7 +212,7 @@ export function PendingOrdersList() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            {orders.length} order{orders.length !== 1 ? 's' : ''}
+            {visibleOrders.length} order{visibleOrders.length !== 1 ? 's' : ''}
           </span>
         </div>
 
@@ -154,7 +228,14 @@ export function PendingOrdersList() {
                   onClick={handleCancelAll}
                   disabled={cancelingAll}
                 >
-                  {cancelingAll ? 'Canceling...' : 'Yes'}
+                  {cancelingAll ? (
+                    <span className="flex items-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Cancelling&hellip;
+                    </span>
+                  ) : (
+                    'Yes'
+                  )}
                 </Button>
                 <Button
                   variant="ghost"
@@ -178,11 +259,18 @@ export function PendingOrdersList() {
         )}
       </div>
 
+      {/* ── Cancel-all error ──────────────────────────────── */}
+      {cancelAllError && (
+        <p className="text-xs text-destructive">
+          Some orders failed to cancel. Please try again.
+        </p>
+      )}
+
       {/* ── Order rows ──────────────────────────────────── */}
       <div className="rounded-md border border-border overflow-hidden">
-        {orders.map((order, idx) => {
+        {visibleOrders.map((order, idx) => {
           const isBuy = order.side?.toLowerCase() === 'buy';
-          const isCanceling = order.id ? cancelingIds.has(order.id) : false;
+          const hasError = order.id ? errorIds.has(order.id) : false;
 
           return (
             <div key={`${order.symbol}-${order.id || idx}`}>
@@ -191,7 +279,6 @@ export function PendingOrdersList() {
                 className={cn(
                   'flex items-center gap-3 px-4 py-3 transition-all duration-150',
                   'hover:bg-muted/50 hover:-translate-y-[0.5px]',
-                  isCanceling && 'opacity-50',
                 )}
               >
                 {/* ── Left: Ticker + side badge ────────────── */}
@@ -214,36 +301,36 @@ export function PendingOrdersList() {
 
                 {/* ── Middle: Order details chips ──────────── */}
                 <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
-                  {/* Quantity */}
                   <span className="inline-flex items-center rounded bg-muted/60 px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">
                     {order.quantity || order.qty} qty
                   </span>
-                  {/* Type */}
                   {order.type && (
                     <span className="inline-flex items-center rounded bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground">
                       {typeLabel(order.type)}
                     </span>
                   )}
-                  {/* Limit price */}
                   {order.limit_price && (
                     <span className="inline-flex items-center rounded bg-muted/60 px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">
                       @ {order.limit_price}
                     </span>
                   )}
-                  {/* Time in force */}
                   {order.time_in_force && (
                     <span className="inline-flex items-center rounded bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground">
                       {tifLabel(order.time_in_force)}
+                    </span>
+                  )}
+                  {/* ── Inline error message ───────────────── */}
+                  {hasError && (
+                    <span className="inline-flex items-center rounded bg-destructive/10 px-1.5 py-0.5 text-[11px] text-destructive font-medium">
+                      Cancel failed
                     </span>
                   )}
                 </div>
 
                 {/* ── Right: Status pill + cancel ──────────── */}
                 <div className="flex items-center gap-2.5 shrink-0">
-                  {/* Status pill with optional pulsing dot */}
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/30 px-2 py-0.5">
                     <span className="relative flex h-1.5 w-1.5">
-                      {/* Pulse ring (CSS animation) */}
                       <span className="absolute inset-0 rounded-full bg-amber-400/60 animate-ping" style={{ animationDuration: '2s' }} />
                       <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-400" />
                     </span>
@@ -252,11 +339,10 @@ export function PendingOrdersList() {
                     </span>
                   </span>
 
-                  {/* Cancel button — subtle by default, danger on hover */}
                   {order.id && (
                     <button
                       onClick={() => handleCancel(order.id)}
-                      disabled={isCanceling}
+                      disabled={false}
                       aria-label={`Cancel order for ${order.symbol}`}
                       className={cn(
                         'inline-flex items-center justify-center rounded-md h-7 w-7',
