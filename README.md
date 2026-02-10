@@ -93,9 +93,9 @@ StonksGPT/
 │       │   ├── Sidebar/     # PositionsList, PendingOrdersList
 │       │   ├── layout/      # DashboardLayout
 │       │   └── ui/          # Reusable UI primitives (shadcn)
-│       ├── lib/             # API client, sessions, chart cache, auth
-│       └── pages/           # Route pages (App, Account, Sessions, News, Login)
-└── dedalus-mcp/             # Dedalus Labs MCP integration
+│       ├── lib/             # API client, sessions, chart cache
+│       └── pages/           # Route pages (App, Account, Sessions, News)
+└── (removed) dedalus-mcp/   # Legacy stub (no longer used)
 ```
 
 ### Data Flow
@@ -241,7 +241,7 @@ The frontend starts on `http://localhost:5173`.
 | `/sessions/:id/chat` | Chat | Session-scoped chat workspace with voice calls |
 | `/account` | Account | Portfolio dashboard (Assets, Orders, History tabs) |
 | `/news` | News | Market news with watchlist filtering |
-| `/login` | Login | Authentication page |
+| `/login` | Login | (Removed) |
 
 ---
 

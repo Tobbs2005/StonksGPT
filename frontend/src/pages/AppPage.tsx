@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +16,7 @@ import {
 
 /** Flip to true to show developer helpers (clear all sessions, per-session delete). */
 const DEV_MODE = true;
+const DEMO_NOTE_KEY = 'stonks.demoNoticeDismissed';
 
 export function AppPage() {
   const navigate = useNavigate();
@@ -24,9 +25,7 @@ export function AppPage() {
   /* ── Reactive session state (re-read from localStorage on mutate) ── */
   const [sessionTick, setSessionTick] = useState(0);
   const refreshSessions = () => setSessionTick((t) => t + 1);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _tick = sessionTick; // used to force re-read below
-  const recentSessions = getSessions().slice(0, 5);
+  const recentSessions = useMemo(() => getSessions().slice(0, 5), [sessionTick]);
 
   /* ── Session creation modal ──────────────────────────── */
   const [showModal, setShowModal] = useState(false);
@@ -36,6 +35,28 @@ export function AppPage() {
   /* ── Delete confirmation state ──────────────────────── */
   const [deleteTarget, setDeleteTarget] = useState<TradingSession | null>(null);
   const [showClearAll, setShowClearAll] = useState(false);
+
+  /* ── Demo disclaimer modal (one-time) ────────────────── */
+  const [showDemoNote, setShowDemoNote] = useState(false);
+  useEffect(() => {
+    try {
+      const dismissed = localStorage.getItem(DEMO_NOTE_KEY) === '1';
+      if (!dismissed) {
+        setShowDemoNote(true);
+      }
+    } catch {
+      // ignore storage failures (private mode)
+    }
+  }, []);
+
+  const dismissDemoNote = () => {
+    try {
+      localStorage.setItem(DEMO_NOTE_KEY, '1');
+    } catch {
+      // ignore
+    }
+    setShowDemoNote(false);
+  };
 
   const handleOpenModal = () => {
     setName('');
@@ -179,6 +200,39 @@ export function AppPage() {
           </div>
         )}
       </div>
+
+      {/* ── Demo disclaimer modal (overlay) ───────────────── */}
+      {showDemoNote && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+          <Card className="w-full max-w-lg shadow-modal border-border/30">
+            <CardHeader className="space-y-2">
+              <CardTitle>Demo environment</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                This is a demo built on a <span className="font-medium text-foreground">shared Alpaca paper trading account</span>.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="text-sm text-muted-foreground space-y-2">
+                <p>
+                  You can trade <span className="font-medium text-foreground">stocks</span> and{' '}
+                  <span className="font-medium text-foreground">crypto</span>, run{' '}
+                  <span className="font-medium text-foreground">web search</span>, and explore portfolio/account tools.
+                </p>
+                <p>
+                  To prevent spam and protect our LLM API keys, AI chat is{' '}
+                  <span className="font-medium text-foreground">limited to 5 calls per hour</span>.
+                </p>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <Button variant="ghost" onClick={dismissDemoNote}>
+                  Close
+                </Button>
+                <Button onClick={dismissDemoNote}>Got it</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* ── Session creation modal ─────────────────────────── */}
       {showModal && (

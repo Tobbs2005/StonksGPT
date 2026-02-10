@@ -1,0 +1,35 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      # Disable voice in production to avoid ElevenLabs credit abuse
+      VOICE_ENABLED: "false"
+      # Provide via .env in the VM (do not commit secrets)
+      # ALPACA_API_KEY: ...
+      # ALPACA_SECRET_KEY: ...
+      # ALPACA_PAPER_TRADE: "True"
+      # DEDALUS_API_KEY: ...
+      # GEMINI_API_KEY: ...
+      # OPENAI_API_KEY / ANTHROPIC_API_KEY if used elsewhere
+      # FINNHUB_API_KEY / MARKETAUX_API_KEY if used
+    env_file:
+      - ./.env
+    ports:
+      - "3001:3001"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        # Hide voice UI in prod
+        VITE_VOICE_ENABLED: "false"
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+

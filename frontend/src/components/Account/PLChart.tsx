@@ -4,6 +4,7 @@ import {
   ColorType,
   LineSeries,
   type IChartApi,
+  type UTCTimestamp,
 } from 'lightweight-charts';
 
 /* ── Types ────────────────────────────────────────────────── */
@@ -119,7 +120,12 @@ export function PLChart({ data, range, height = 280 }: PLChartProps) {
       lastValueVisible: false,
     });
 
-    series.setData(data);
+    series.setData(
+      data.map((p) => ({
+        time: p.time as UTCTimestamp,
+        value: p.value,
+      })),
+    );
     chart.timeScale().fitContent();
 
     /* ── resize observer ────────────────────────────────── */

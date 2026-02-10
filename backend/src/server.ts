@@ -32,6 +32,9 @@ if (fs.existsSync(rootEnvPath)) {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// When running behind a reverse proxy (Nginx/docker), trust X-Forwarded-* so req.ip is correct
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -70,6 +73,15 @@ const wss = new WebSocketServer({ noServer: true });
 httpServer.on('upgrade', (request, socket, head) => {
   const url = request.url ?? '';
   if (url.startsWith('/ws/stt')) {
+    const voiceFlag = String(process.env.VOICE_ENABLED || '').toLowerCase().trim();
+    const voiceEnabled =
+      voiceFlag === 'true' ||
+      voiceFlag === '1' ||
+      (voiceFlag !== 'false' && voiceFlag !== '0' && process.env.NODE_ENV !== 'production');
+    if (!voiceEnabled) {
+      socket.destroy();
+      return;
+    }
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request, url);
     });

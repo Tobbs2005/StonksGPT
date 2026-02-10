@@ -5,6 +5,7 @@ import {
   ColorType,
   IChartApi,
   ISeriesApi,
+  type UTCTimestamp,
   CandlestickSeries,
   LineSeries,
 } from 'lightweight-charts';
@@ -58,7 +59,7 @@ export function StockChart({ chartData, onTimeframeChange, isLoading, compact, h
   }, [chartData.metadata.timeframe]);
 
   const seriesData = useMemo(() => {
-    const toTimestamp = (value: string) => Math.floor(new Date(value).getTime() / 1000);
+    const toTimestamp = (value: string) => Math.floor(new Date(value).getTime() / 1000) as UTCTimestamp;
     const candlestick = chartData.data
       .filter((point) => (
         point.open !== undefined &&

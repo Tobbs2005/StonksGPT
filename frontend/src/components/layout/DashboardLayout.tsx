@@ -1,8 +1,6 @@
 import { ReactNode, useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { AppSidebar } from '@/components/Navigation/AppSidebar';
 import { TopBar } from '@/components/Navigation/TopBar';
-import { getAuth, logout } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 
 interface DashboardLayoutProps {
@@ -12,16 +10,8 @@ interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ children, flush }: DashboardLayoutProps) {
-  const navigate = useNavigate();
-  const auth = getAuth();
-
   // Sidebar closed by default for full-width chat; user opens via hamburger
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
 
   const toggleSidebar = useCallback(() => setSidebarOpen((o) => !o), []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -75,8 +65,7 @@ export function DashboardLayout({ children, flush }: DashboardLayoutProps) {
       {/* Main content — always full width */}
       <div className="flex-1 flex flex-col min-w-0 w-full">
         <TopBar
-          userName={auth?.username || 'Trader'}
-          onLogout={handleLogout}
+          userName="Trader"
           onToggleSidebar={toggleSidebar}
         />
         {flush ? (

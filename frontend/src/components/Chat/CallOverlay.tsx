@@ -210,9 +210,8 @@ export function CallOverlay({ isOpen, onEndCall, sessionId }: CallOverlayProps) 
       if (mutedRef.current) return;
 
       // Ensure STT WS is open (reconnect if needed)
-      let ws: WebSocket;
       try {
-        ws = await openSttWs(runId);
+        await openSttWs(runId);
       } catch {
         return; // stale or failed
       }

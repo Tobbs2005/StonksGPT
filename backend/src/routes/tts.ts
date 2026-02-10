@@ -5,6 +5,14 @@ const router = Router();
 const DEFAULT_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
 const DEFAULT_MODEL = 'eleven_multilingual_v2';
 
+function isVoiceEnabled(): boolean {
+  const raw = String(process.env.VOICE_ENABLED || '').toLowerCase().trim();
+  if (raw === 'true' || raw === '1') return true;
+  if (raw === 'false' || raw === '0') return false;
+  // Safe default: enabled in dev, disabled in production unless explicitly enabled
+  return process.env.NODE_ENV !== 'production';
+}
+
 // Lazy-init client (API key required)
 let client: ElevenLabsClient | null = null;
 function getClient(): ElevenLabsClient {
@@ -25,6 +33,13 @@ function getClient(): ElevenLabsClient {
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
+    if (!isVoiceEnabled()) {
+      return res.status(403).json({
+        success: false,
+        error: 'Voice features are disabled on this deployment.',
+      });
+    }
+
     const { text, voiceId = DEFAULT_VOICE_ID, modelId = DEFAULT_MODEL } = req.body;
 
     if (!text || typeof text !== 'string') {

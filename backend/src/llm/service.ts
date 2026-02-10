@@ -861,7 +861,7 @@ TRADING EXECUTION:
                   if (!newsResponse.ok || !newsPayload?.success) {
                     throw new Error(newsPayload?.error || 'Failed to fetch news');
                   }
-                  const newsData = newsPayload.data;
+                  let newsData = newsPayload.data;
                   if (newsData?.error) {
                     result = `News error: ${newsData.error}`;
                   } else {

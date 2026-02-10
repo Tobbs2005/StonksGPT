@@ -3,8 +3,12 @@ import { getMCPClient } from '../mcp/client';
 import { getLLMService } from '../llm/service';
 import { generateText } from '../llm/llm-provider';
 import { MCPToolCall } from '../types';
+import { createLlmRateLimiter } from '../middleware/rateLimit';
 
 const router = Router();
+
+// Limit LLM-powered endpoints to protect API keys/costs (per IP)
+const llmLimiter = createLlmRateLimiter({ maxPerHour: 5 });
 
 // Generic tool caller endpoint
 router.post('/tool', async (req: Request, res: Response) => {
@@ -77,7 +81,7 @@ router.post('/tool', async (req: Request, res: Response) => {
 });
 
 // LLM endpoint - processes natural language messages using Dedalus Labs MCP
-router.post('/llm', async (req: Request, res: Response) => {
+router.post('/llm', llmLimiter, async (req: Request, res: Response) => {
   // Set a timeout for the entire request (110 seconds to be slightly less than server timeout)
   const timeout = setTimeout(() => {
     if (!res.headersSent) {
@@ -235,7 +239,7 @@ Rules:
 - Sound like a helpful friend, not a data report.
 - If the content is already conversational and short, you may return it with minimal or no changes.`;
 
-router.post('/to-speakable', async (req: Request, res: Response) => {
+router.post('/to-speakable', llmLimiter, async (req: Request, res: Response) => {
   try {
     const { text } = req.body;
     if (!text || typeof text !== 'string') {
@@ -264,7 +268,7 @@ Rules:
 - End with a brief forward-looking note if relevant (e.g. "You might want to keep an eye on...").
 - If the conversation was short or trivial, keep the summary proportionally brief.`;
 
-router.post('/summarize-session', async (req: Request, res: Response) => {
+router.post('/summarize-session', llmLimiter, async (req: Request, res: Response) => {
   try {
     const { messages } = req.body;
     if (!Array.isArray(messages) || messages.length === 0) {

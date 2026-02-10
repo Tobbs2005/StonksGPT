@@ -12,7 +12,23 @@ import * as WebSocketModule from 'ws';
 const ELEVENLABS_STT_URL = 'wss://api.elevenlabs.io/v1/speech-to-text/realtime';
 const MODEL_ID = 'scribe_v2_realtime';
 
+function isVoiceEnabled(): boolean {
+  const raw = String(process.env.VOICE_ENABLED || '').toLowerCase().trim();
+  if (raw === 'true' || raw === '1') return true;
+  if (raw === 'false' || raw === '0') return false;
+  // Safe default: enabled in dev, disabled in production unless explicitly enabled
+  return process.env.NODE_ENV !== 'production';
+}
+
 export function handleSttWebSocket(clientWs: import('ws').WebSocket, _url: string): void {
+  if (!isVoiceEnabled()) {
+    try {
+      clientWs.send(JSON.stringify({ type: 'error', error: 'Voice features are disabled on this deployment.' }));
+    } catch {}
+    clientWs.close();
+    return;
+  }
+
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {
     try {

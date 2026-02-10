@@ -4,7 +4,7 @@ import { useTheme } from '@/contexts/theme-context';
 
 interface TopBarProps {
   userName: string;
-  onLogout: () => void;
+  onLogout?: () => void;
   onToggleSidebar?: () => void;
 }
 
@@ -56,16 +56,18 @@ export function TopBar({ userName, onLogout, onToggleSidebar }: TopBarProps) {
                 </>
               )}
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onLogout}
-              className="gap-2"
-              title="Log out"
-            >
-              <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">Logout</span>
-            </Button>
+            {onLogout && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onLogout}
+                className="gap-2"
+                title="Log out"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline">Logout</span>
+              </Button>
+            )}
           </div>
         </div>
       </div>

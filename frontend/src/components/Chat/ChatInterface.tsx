@@ -29,10 +29,12 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const [chartLoadingIds, setChartLoadingIds] = useState<Set<string>>(new Set());
   const [isCallOpen, setIsCallOpen] = useState(false);
   const [playbackState, setPlaybackState] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
+  const [rateLimitNotice, setRateLimitNotice] = useState<string | null>(null);
   const callStartRef = useRef<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const playbackAudioRef = useRef<HTMLAudioElement | null>(null);
   const playbackAbortRef = useRef<AbortController | null>(null);
+  const voiceEnabled = import.meta.env.VITE_VOICE_ENABLED !== 'false';
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -66,6 +68,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   };
 
   const handleSend = async (userMessage: string) => {
+    setRateLimitNotice(null);
     const userMsg: Message = {
       id: Date.now().toString(),
       role: 'user',
@@ -188,6 +191,20 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         const errorData = error.response.data;
         errorContent = errorData.error || 'Failed to process request';
         suggestions = errorData.suggestions || [];
+
+        if (error.response?.status === 429) {
+          const retryAfterSeconds =
+            typeof errorData.retryAfterSeconds === 'number'
+              ? errorData.retryAfterSeconds
+              : undefined;
+          const mins =
+            retryAfterSeconds !== undefined ? Math.max(1, Math.ceil(retryAfterSeconds / 60)) : undefined;
+          setRateLimitNotice(
+            mins
+              ? `Rate limit reached (5 requests/hour). This protects our LLM keys. Try again in ~${mins} minute(s).`
+              : 'Rate limit reached (5 requests/hour). This protects our LLM keys. Try again soon.',
+          );
+        }
       } else if (error.request) {
         errorContent = 'Unable to connect to the server. Please check your connection.';
         suggestions = [
@@ -466,7 +483,9 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   return (
     <>
     {/* Call overlay (portal-like, above everything) */}
-    <CallOverlay isOpen={isCallOpen} onEndCall={handleEndCall} sessionId={sessionId} />
+    {voiceEnabled && (
+      <CallOverlay isOpen={isCallOpen} onEndCall={handleEndCall} sessionId={sessionId} />
+    )}
 
     <Card className="h-full w-full flex flex-col border-border/30 bg-card/95 rounded-2xl shadow-elevated overflow-hidden">
       <CardHeader className="border-b border-border/30 px-6 py-4 shrink-0 bg-card/60 backdrop-blur-xl">
@@ -474,41 +493,50 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           <div>
             <CardTitle className="text-lg">StonksGPT</CardTitle>
             <p className="text-sm text-muted-foreground">Real-time trading assistant</p>
+            {rateLimitNotice && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {rateLimitNotice}
+              </p>
+            )}
           </div>
           {sessionId && (
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 rounded-full"
-                onClick={playbackState === 'idle' ? handlePlayback : playbackState === 'loading' ? undefined : handlePlayback}
-                disabled={isCallOpen || playbackState === 'loading' || messages.length === 0}
-              >
-                {playbackState === 'loading' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : playbackState === 'playing' ? (
-                  <Pause className="h-4 w-4" />
-                ) : (
-                  <Play className="h-4 w-4" />
-                )}
-                {playbackState === 'loading'
-                  ? 'Preparing...'
-                  : playbackState === 'playing'
-                    ? 'Pause'
-                    : playbackState === 'paused'
-                      ? 'Resume'
-                      : 'Playback'}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 rounded-full"
-                onClick={handleStartCall}
-                disabled={isCallOpen || playbackState === 'playing' || playbackState === 'loading'}
-              >
-                <Phone className="h-4 w-4" />
-                Call
-              </Button>
+              {voiceEnabled && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 rounded-full"
+                  onClick={playbackState === 'idle' ? handlePlayback : playbackState === 'loading' ? undefined : handlePlayback}
+                  disabled={isCallOpen || playbackState === 'loading' || messages.length === 0}
+                >
+                  {playbackState === 'loading' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : playbackState === 'playing' ? (
+                    <Pause className="h-4 w-4" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
+                  {playbackState === 'loading'
+                    ? 'Preparing...'
+                    : playbackState === 'playing'
+                      ? 'Pause'
+                      : playbackState === 'paused'
+                        ? 'Resume'
+                        : 'Playback'}
+                </Button>
+              )}
+              {voiceEnabled && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 rounded-full"
+                  onClick={handleStartCall}
+                  disabled={isCallOpen || playbackState === 'playing' || playbackState === 'loading'}
+                >
+                  <Phone className="h-4 w-4" />
+                  Call
+                </Button>
+              )}
             </div>
           )}
         </div>
